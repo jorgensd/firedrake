@@ -1640,18 +1640,20 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
             plex = topology.topology_dm
             coordinate_dm = plex.getCoordinateDM()
             coordinate_field = coordinate_dm.getField(0)[0]
-            print(type(coordinate_field))
-            basis_space = coordinate_field.getBasisSpace()
-            degree, max_degree = basis_space.getDegree()
-            if max_degree != degree:
-                raise ValueError("Can't handle coordinate fields of variable degree!")
+            try:
+                basis_space = coordinate_field.getBasisSpace()
+                degree, max_degree = basis_space.getDegree()
+                if max_degree != degree:
+                    raise ValueError("Can't handle coordinate fields of variable degree!")
 
-            # TODO: Miracle occurs. This will probably depend on the cell type.
-            num_dofs = self.num_vertices()
+                # TODO: Miracle occurs. This will probably depend on the cell type.
+                num_dofs = self.num_vertices()
+            except AttributeError:
+                num_dofs = self.num_vertices()
 
             section = coordinates_fs.dm.getDefaultSection()
             dimension = self.ufl_coordinate_element().cell().geometric_dimension()
-            coordinates_data = dmcommon.reordered_coords(plex, section, num_dofs, dimension)
+            coordinates_data = dmcommon.reordered_coords(plex, section, (num_dofs, dimension))
             coordinates_name = _generate_default_mesh_coordinates_name(self.name)
             coordinates = function.CoordinatelessFunction(
                 coordinates_fs, val=coordinates_data, name=coordinates_name
