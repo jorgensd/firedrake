@@ -2000,11 +2000,21 @@ def make_mesh_from_coordinates(coordinates, name):
 
 def make_mesh_from_mesh_topology(topology, name, comm=COMM_WORLD):
     # Construct coordinate element
-    # TODO: meshfile might indicates higher-order coordinate element
     cell = topology.ufl_cell()
     geometric_dim = topology.topology_dm.getCoordinateDim()
     cell = cell.reconstruct(geometric_dimension=geometric_dim)
-    element = ufl.VectorElement("Lagrange", cell, 1)
+
+    plex = topology.topology_dm
+    dm = plex.getCoordinateDM()
+    field = dm.getField(0)[0]
+    try:
+        basis_space = field.getBasisSpace()
+        degree, max_degree = basis_space.getDegree()
+        assert max_degree == degree
+    except AttributeError:
+        degree = 1
+
+    element = ufl.VectorElement("Lagrange", cell, degree)
     # Create mesh object
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh._init_topology(topology)
