@@ -8,6 +8,7 @@ import weakref
 from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
 import enum
+import math
 import numbers
 import abc
 
@@ -1635,6 +1636,8 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
 
             element = self.ufl_coordinate_element()
             coordinates_fs = functionspace.FunctionSpace(topology, element)
+            cell = element.cell()
+            dimension = cell.geometric_dimension()
 
             # Get the degree of the coordinate field
             plex = topology.topology_dm
@@ -1646,13 +1649,21 @@ class MeshGeometry(ufl.Mesh, MeshGeometryMixin):
                 if max_degree != degree:
                     raise ValueError("Can't handle coordinate fields of variable degree!")
 
-                # TODO: Miracle occurs. This will probably depend on the cell type.
-                num_dofs = self.num_vertices()
+                if cell.is_simplex():
+                    cell_num_dofs = [
+                        math.comb(degree - 1, k) for k in range(dimension + 1)
+                    ]
+                else:
+                    raise ValueError("Only works for simplexes!")
+
+                num_dofs = sum(
+                    self.num_entities(k) * cell_num_dofs[k]
+                    for k in range(dimension + 1)
+                )
             except AttributeError:
                 num_dofs = self.num_vertices()
 
             section = coordinates_fs.dm.getDefaultSection()
-            dimension = self.ufl_coordinate_element().cell().geometric_dimension()
             coordinates_data = dmcommon.reordered_coords(plex, section, (num_dofs, dimension))
             coordinates_name = _generate_default_mesh_coordinates_name(self.name)
             coordinates = function.CoordinatelessFunction(
