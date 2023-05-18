@@ -2781,8 +2781,10 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
             raise NotImplementedError("Immersed manifold meshes are not supported")
 
     swarm, n_missing_points = _pic_swarm_in_mesh(
-        mesh, vertexcoords, tolerance=tolerance, redundant=redundant
+        mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=True
     )
+    # NOTE: If exclude_halos=False, then I need to update the SF to advertise
+    # shared points.
 
     if missing_points_behaviour:
         if n_missing_points:
@@ -2889,7 +2891,9 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
         self._other_fields = fields
 
 
-def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redundant=True):
+def _pic_swarm_in_mesh(
+    parent_mesh, coords, fields=None, tolerance=None, redundant=True, exclude_halos=True
+):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
     This should only by used for meshes with straight edges. If not, the
@@ -2921,6 +2925,10 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
         time.
     :kwarg redundant: If True, the DMSwarm will be created using only the
         points specified on MPI rank 0.
+    :kwarg exclude_halos: If True, the DMSwarm will not contain any points in
+        the mesh halos. If False, it will but the global index of the points
+        in the halos will match a global index of a point which is not in the
+        halo.
     :return: the immersed DMSwarm
 
     .. note::
@@ -3044,7 +3052,7 @@ def _pic_swarm_in_mesh(parent_mesh, coords, fields=None, tolerance=None, redunda
             input_coords_ixs,
             missing_coords_idxs,
         ) = _parent_mesh_embedding(
-            parent_mesh, coords, tolerance, redundant, exclude_halos=True
+            parent_mesh, coords, tolerance, redundant, exclude_halos=exclude_halos
         )
         if parent_mesh.extruded:
             # need to store the base parent cell number and the height to be able
