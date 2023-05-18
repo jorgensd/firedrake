@@ -198,11 +198,31 @@ def test_generate_cell_midpoints(parentmesh, redundant):
                 vm = VertexOnlyMesh(parentmesh, inputcoords)
             else:
                 vm = VertexOnlyMesh(parentmesh, np.empty(inputcoords.shape))
+        # Check we can get original ordering back
+        vm_input = vm.input_ordering
+        if MPI.COMM_WORLD.rank == 0:
+            assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoords.shape), inputcoords)
+            vm_input.num_cells() == len(inputcoords)
+        else:
+            assert len(vm_input.coordinates.dat.data_ro) == 0
+            vm_input.num_cells() == 0
     else:
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
         vm = VertexOnlyMesh(parentmesh, inputcoordslocal, redundant=False)
+        # Check we can get original ordering back
+        vm_input = vm.input_ordering
+        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoordslocal.shape), inputcoordslocal)
+        vm_input.num_cells() == len(inputcoordslocal)
+
+    # More vm_input checks
+    vm_input._parent_mesh is vm
+    vm_input_input = vm_input.input_ordering
+    assert np.array_equal(vm_input_input.coordinates.dat.data_ro, vm_input.coordinates.dat.data_ro)
+    assert vm_input_input._parent_mesh is vm_input
+    assert vm_input_input._parent_mesh._parent_mesh is vm
+    assert vm_input_input._parent_mesh._parent_mesh._parent_mesh is parentmesh
 
     # Have correct number of vertices
     total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)
