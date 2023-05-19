@@ -1672,6 +1672,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         """
         cell_parent_cell_list = np.copy(self.topology_dm.getField("parentcellnum"))
         self.topology_dm.restoreField("parentcellnum")
+        # remove invalid entries
+        cell_parent_cell_list = cell_parent_cell_list[cell_parent_cell_list >= 0]
         return cell_parent_cell_list
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
@@ -1691,6 +1693,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise AttributeError("Parent mesh is not extruded")
         cell_parent_base_cell_list = np.copy(self.topology_dm.getField("parentcellbasenum"))
         self.topology_dm.restoreField("parentcellbasenum")
+        # remove invalid entries
+        cell_parent_base_cell_list = cell_parent_base_cell_list[cell_parent_base_cell_list >= 0]
         return cell_parent_base_cell_list
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
@@ -1712,6 +1716,8 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
             raise AttributeError("Parent mesh is not extruded.")
         cell_parent_extrusion_height_list = np.copy(self.topology_dm.getField("parentcellextrusionheight"))
         self.topology_dm.restoreField("parentcellextrusionheight")
+        # remove invalid entries
+        cell_parent_extrusion_height_list = cell_parent_extrusion_height_list[cell_parent_extrusion_height_list >= 0]
         return cell_parent_extrusion_height_list
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
@@ -2895,7 +2901,13 @@ class FiredrakeDMSwarm(PETSc.DMSwarm):
 
 
 def _pic_swarm_in_mesh(
-    parent_mesh, coords, fields=None, tolerance=None, redundant=True, exclude_halos=True
+    parent_mesh,
+    coords,
+    fields=None,
+    tolerance=None,
+    redundant=True,
+    exclude_halos=True,
+    remove_missing_points=False,
 ):
     """Create a Particle In Cell (PIC) DMSwarm immersed in a Mesh
 
@@ -2932,6 +2944,11 @@ def _pic_swarm_in_mesh(
         the mesh halos. If False, it will but the global index of the points
         in the halos will match a global index of a point which is not in the
         halo.
+    :kwarg remove_missing_points: If True, any points which are not found in
+        the mesh will be removed from the DMSwarm. If False, they will be kept
+        on the MPI rank which owns them but will be marked as not being not
+        found in the mesh by setting their associated cell numbers to -1 and
+        their reference coordinates to NaNs.
     :return: the immersed DMSwarm
 
     .. note::
@@ -3058,10 +3075,15 @@ def _pic_swarm_in_mesh(
             ranks,
             on_ranks,
             input_ranks,
-            input_coords_ixs,
+            input_coords_idxs,
             missing_coords_idxs,
         ) = _parent_mesh_embedding(
-            parent_mesh, coords, tolerance, redundant, exclude_halos=exclude_halos
+            parent_mesh,
+            coords,
+            tolerance,
+            redundant,
+            exclude_halos,
+            remove_missing_points,
         )
         if parent_mesh.extruded:
             # need to store the base parent cell number and the height to be able
@@ -3100,7 +3122,7 @@ def _pic_swarm_in_mesh(
             ranks,
             on_ranks,
             input_ranks,
-            input_coords_ixs,
+            input_coords_idxs,
             base_parent_cell_nums,
             extrusion_heights,
         ) = _vom_original_ordering(parent_mesh)
@@ -3188,7 +3210,7 @@ def _pic_swarm_in_mesh(
     field_rank[...] = ranks
     field_on_rank[...] = on_ranks
     field_input_rank[...] = input_ranks
-    field_input_index[...] = input_coords_ixs
+    field_input_index[...] = input_coords_idxs
 
     # have to restore fields once accessed to allow access again
     swarm.restoreField("inputindex")
@@ -3337,7 +3359,9 @@ def _mpi_array_lexicographic_min(x, y, datatype):
 array_lexicographic_mpi_op = MPI.Op.Create(_mpi_array_lexicographic_min, commute=True)
 
 
-def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_halos):
+def _parent_mesh_embedding(
+    parent_mesh, coords, tolerance, redundant, exclude_halos, remove_missing_points
+):
     """Find the parent mesh cells containing the given coordinates.
 
     Parameters
@@ -3361,37 +3385,49 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     exclude_halos : ``bool``
         If True, the embedding will be done using only the points specified on
         the locally owned mesh partition.
+    remove_missing_points : ``bool``
+        If True, any points which are not found in the mesh will be removed
+        from the output arrays. If False, they will be kept on the MPI rank
+        which owns them but will be marked as not being not found in the mesh
+        by setting their associated cell numbers to -1 and their reference
+        coordinates to NaNs. This does not effect the behaviour of
+        ``missing_coords_idxs``.
 
     Returns
     -------
     coords : ``np.ndarray``
-        The coordinates of the points that were embedded.
+        The coordinates of the points that were embedded on this rank. If
+        ``remove_missing_points`` if False then this will include points that
+        were specified on this rank but not found in the mesh.
     coords_idxs : ``np.ndarray``
-        The indices of the points that were embedded.
+        The global indices of the points on this rank.
     reference_coords : ``np.ndarray``
-        The reference coordinates of the points that were embedded.
+        The reference coordinates of the points that were embedded as given by
+        the local mesh partition. If ``remove_missing_points`` if False then
+        the missing point reference coordinates will be NaNs.
     parent_cell_nums : ``np.ndarray``
-        The parent cell indices (as given by ``locate_cell``) of the points
-        that were embedded.
+        The parent cell indices (as given by ``locate_cell``) of the global
+        coordinates that were embedded in the local mesh partition. If
+        ``remove_missing_points`` is False then the missing point numbers
+        will be -1.
     ranks : ``np.ndarray``
-        The MPI rank of the process that owns the parent cell of the points.
+        The MPI rank of the process that owns the parent cell of each point.
+        By "owns" we mean the mesh partition where the parent cell is not in
+        the halo. If a point is not found in the mesh then the rank is -1.
     on_ranks : ``np.ndarray``
-        The MPI rank of the process on which the point can be found.
+        The MPI rank of the process on which the point can be found. When we
+        include halos, this can be different from the rank that owns the point.
+        If ``remove_missing_points`` is False then this will be the rank upon
+        which the point was originally specified.
     input_ranks : ``np.ndarray``
         The MPI rank of the process that specified the input ``coords``.
     input_coords_idxs : ``np.ndarray``
         The indices of the points in the input ``coords`` array that were
-        embedded.
+        embedded. If ``remove_missing_points`` is False then this will include
+        points that were specified on this rank but not found in the mesh.
     missing_coords_idxs : ``np.ndarray``
         The indices of the points in the input coords array that were not
-        embedded. See note below.
-
-    Notes
-    -----
-    When redundant is False, it is assumed that all points given are unique.
-    If, however, any detected points are not identified as being in the locally
-    owned mesh partition (i.e. not in the halo) then an error is raised. This
-    is because we do not have point redistribution implemented yet.
+        embedded.
     """
 
     if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
@@ -3507,14 +3543,23 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     # Any ranks which are still np.inf are not in the mesh
     missing_coords_idxs = np.where(ranks == np.inf)[0]
 
-    off_rank_coords_idxs = np.where(ranks != parent_mesh.comm.rank)[0]
+    if not remove_missing_points:
+        missing_coords_idxs_on_rank = np.where(
+            (ranks == np.inf) & (input_ranks_global == parent_mesh.comm.rank)
+        )[0]
+        locally_visible[missing_coords_idxs_on_rank] = True
+        parent_cell_nums[missing_coords_idxs_on_rank] = -1
+        reference_coords[missing_coords_idxs_on_rank, :] = np.nan
+        ranks[missing_coords_idxs_on_rank] = -1
+
     if exclude_halos:
+        off_rank_coords_idxs = np.where(
+            (ranks != parent_mesh.comm.rank) & (ranks != -1)
+        )[0]
         locally_visible[off_rank_coords_idxs] = False
 
-    on_ranks = np.full(ranks.shape, parent_mesh.comm.rank, dtype=int)
+    on_ranks = np.full(ranks.shape, parent_mesh.comm.rank)
 
-    # Drop points which are not locally visible but leave the missing coords
-    # indices intact for inspection (so that we can tell how many are lost)
     return (
         np.compress(locally_visible, coords_global, axis=0),
         np.compress(locally_visible, coords_idxs, axis=0),

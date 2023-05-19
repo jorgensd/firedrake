@@ -173,6 +173,9 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     assert len(stored_vertex_coords) == len(stored_parent_cell_nums)
     for i in range(len(stored_vertex_coords)):
         assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
+    # Input is correct (and includes points that were out of bounds)
+    vm_input = vm.input_ordering
+    assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
 
 
 def test_generate_cell_midpoints(parentmesh, redundant):
