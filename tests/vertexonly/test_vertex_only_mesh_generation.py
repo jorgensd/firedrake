@@ -100,7 +100,7 @@ def pseudo_random_coords(size):
 
 # Mesh Generation Tests
 
-def verify_vertexonly_mesh(m, vm, inputvertexcoords):
+def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     """
     Check that VertexOnlyMesh `vm` immersed in parent mesh `m` with
     creation coordinates `inputvertexcoords` behaves as expected.
@@ -113,6 +113,8 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords):
     assert vm.topological_dimension() == 0
     # Can initialise
     vm.init()
+    # has correct name
+    assert vm.name == name
     # Find in-bounds and non-halo-region input coordinates
     in_bounds = []
     ref_cell_dists_l1 = []
@@ -216,6 +218,9 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputcoordslocal.shape), inputcoordslocal)
         vm_input.num_cells() == len(inputcoordslocal)
 
+    # Has correct name after not specifying one
+    assert vm.name == parentmesh.name + "_immersed_vom"
+
     # More vm_input checks
     vm_input._parent_mesh is vm
     vm_input_input = vm_input.input_ordering
@@ -250,8 +255,10 @@ def test_generate_cell_midpoints_parallel(parentmesh, redundant):
 
 
 def test_generate_random(parentmesh, vertexcoords):
-    vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
-    verify_vertexonly_mesh(parentmesh, vm, vertexcoords)
+    vm = VertexOnlyMesh(
+        parentmesh, vertexcoords, missing_points_behaviour=None, name="testvom"
+    )
+    verify_vertexonly_mesh(parentmesh, vm, vertexcoords, name="testvom")
 
 
 @pytest.mark.parallel

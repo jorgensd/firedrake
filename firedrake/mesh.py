@@ -2668,7 +2668,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', peri
 
 @PETSc.Log.EventDecorator()
 def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
-                   tolerance=None, redundant=True):
+                   tolerance=None, redundant=True, name=None):
     """
     Create a vertex only mesh, immersed in a given mesh, with vertices defined
     by a list of coordinates.
@@ -2692,6 +2692,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         which are specified on rank 0. If False, the mesh will be built using
         the vertices specified by each rank. Care must be taken when using
         ``redundant = False``: see the note below for more information.
+    :kwarg name: Optional name for the new ``VertexOnlyMesh``. If none is
+        specified a name will be generated from the parent mesh name.
 
 
     .. note::
@@ -2798,7 +2800,8 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                 raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
     # Topology
-    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name="swarmmesh", reorder=False)
+    name = name if name is not None else mesh.name + "_immersed_vom"
+    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name=name, reorder=False)
 
     # Geometry
     tcell = topology.ufl_cell()
