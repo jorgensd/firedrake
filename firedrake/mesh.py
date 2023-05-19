@@ -2971,6 +2971,10 @@ def _pic_swarm_in_mesh(
            and rank 3's points will be numbered 30-34. Note that this ought to
            be ``DMSwarmField_pid`` but a bug in petsc4py means that this field
            cannot be set.
+        #, ``onrank`` which contains the MPI rank on which the DMSwarm point
+           is located. This differs from ``DMSwarm_rank``, which contains the
+           MPI rank which owns the DMSwarm point, when ``exclude_halos=False``
+           since halos allow the same point to exist on multiple ranks.
         #. ``inputrank`` which contains the MPI rank at which the ``coords``
            argument was specified. For ``redundant=True`` this is always 0.
         #. ``inputindex`` which contains the index of the point in the
@@ -3038,6 +3042,7 @@ def _pic_swarm_in_mesh(
         ("globalindex", 1, IntType),
         ("inputrank", 1, IntType),
         ("inputindex", 1, IntType),
+        ("onrank", 1, IntType),
     ]
 
     other_fields = fields
@@ -3051,6 +3056,7 @@ def _pic_swarm_in_mesh(
             reference_coords,
             parent_cell_nums,
             ranks,
+            on_ranks,
             input_ranks,
             input_coords_ixs,
             missing_coords_idxs,
@@ -3092,6 +3098,7 @@ def _pic_swarm_in_mesh(
             reference_coords,
             parent_cell_nums,
             ranks,
+            on_ranks,
             input_ranks,
             input_coords_ixs,
             base_parent_cell_nums,
@@ -3169,6 +3176,7 @@ def _pic_swarm_in_mesh(
     field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
     field_global_index = swarm.getField("globalindex")
     field_rank = swarm.getField("DMSwarm_rank")
+    field_on_rank = swarm.getField("onrank")
     field_input_rank = swarm.getField("inputrank")
     field_input_index = swarm.getField("inputindex")
 
@@ -3178,12 +3186,14 @@ def _pic_swarm_in_mesh(
     field_reference_coords[...] = reference_coords
     field_global_index[...] = coords_idxs
     field_rank[...] = ranks
+    field_on_rank[...] = on_ranks
     field_input_rank[...] = input_ranks
     field_input_index[...] = input_coords_ixs
 
     # have to restore fields once accessed to allow access again
     swarm.restoreField("inputindex")
     swarm.restoreField("inputrank")
+    swarm.restoreField("onrank")
     swarm.restoreField("DMSwarm_rank")
     swarm.restoreField("globalindex")
     swarm.restoreField("refcoord")
@@ -3365,6 +3375,8 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         that were embedded.
     ranks : ``np.ndarray``
         The MPI rank of the process that owns the parent cell of the points.
+    on_ranks : ``np.ndarray``
+        The MPI rank of the process on which the point can be found.
     input_ranks : ``np.ndarray``
         The MPI rank of the process that specified the input ``coords``.
     input_coords_idxs : ``np.ndarray``
@@ -3499,6 +3511,8 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
     if exclude_halos:
         locally_visible[off_rank_coords_idxs] = False
 
+    on_ranks = np.full(ranks.shape, parent_mesh.comm.rank, dtype=int)
+
     # Drop points which are not locally visible but leave the missing coords
     # indices intact for inspection (so that we can tell how many are lost)
     return (
@@ -3507,6 +3521,7 @@ def _parent_mesh_embedding(parent_mesh, coords, tolerance, redundant, exclude_ha
         np.compress(locally_visible, reference_coords, axis=0),
         np.compress(locally_visible, parent_cell_nums, axis=0),
         np.compress(locally_visible, ranks, axis=0),
+        np.compress(locally_visible, on_ranks, axis=0),
         np.compress(locally_visible, input_ranks_global, axis=0),
         np.compress(locally_visible, input_coords_idxs_global, axis=0),
         missing_coords_idxs,
@@ -3541,6 +3556,9 @@ def _vom_original_ordering(vom):
         specified in the original embedding.
     ranks : ``np.ndarray``
         The MPI rank of the process that owns the parent cell of the points as
+        specified in the original embedding.
+    on_ranks : ``np.ndarray``
+        The MPI rank of the process on which the point can be found as
         specified in the original embedding.
     input_ranks : ``np.ndarray``
         The MPI rank of the process that specified the input ``coords`` as
@@ -3586,6 +3604,8 @@ def _vom_original_ordering(vom):
     swarm.restoreField("globalindex")
     ranks_local = swarm.getField("DMSwarm_rank")
     swarm.restoreField("DMSwarm_rank")
+    on_ranks_local = swarm.getField("onrank")
+    swarm.restoreField("onrank")
     input_ranks_local = swarm.getField("inputrank")
     swarm.restoreField("inputrank")
     input_idxs_local = swarm.getField("inputindex")
@@ -3641,6 +3661,9 @@ def _vom_original_ordering(vom):
     ranks_global = np.empty(ncoords_global, dtype=ranks_local.dtype)
     vom.comm.Allgatherv(ranks_local, (ranks_global, ncoords_local_allranks))
 
+    on_ranks_global = np.empty(ncoords_global, dtype=on_ranks_local.dtype)
+    vom.comm.Allgatherv(on_ranks_local, (on_ranks_global, ncoords_local_allranks))
+
     input_ranks_global = np.empty(ncoords_global, dtype=input_ranks_local.dtype)
     vom.comm.Allgatherv(input_ranks_local, (input_ranks_global, ncoords_local_allranks))
 
@@ -3676,6 +3699,7 @@ def _vom_original_ordering(vom):
     ]
     sorted_global_idxs_global = global_idxs_global[global_idxs_global_order]
     sorted_ranks_global = ranks_global[global_idxs_global_order]
+    sorted_on_ranks_global = on_ranks_global[global_idxs_global_order]
     sorted_input_ranks_global = input_ranks_global[global_idxs_global_order]
     sorted_input_idxs_global = input_idxs_global[global_idxs_global_order]
     if vom._parent_mesh.extruded:
@@ -3701,6 +3725,7 @@ def _vom_original_ordering(vom):
     ]
     unique_reference_coords_global = sorted_reference_coords_global[unique_idxs, :]
     unique_ranks_global = sorted_ranks_global[unique_idxs]
+    unique_on_ranks_global = sorted_on_ranks_global[unique_idxs]
     unique_input_ranks_global = sorted_input_ranks_global[unique_idxs]
     unique_input_idxs_global = sorted_input_idxs_global[unique_idxs]
     if vom._parent_mesh.extruded:
@@ -3721,6 +3746,7 @@ def _vom_original_ordering(vom):
     ]
     output_reference_coords = unique_reference_coords_global[input_ranks_match, :]
     output_ranks = unique_ranks_global[input_ranks_match]
+    output_on_ranks = unique_on_ranks_global[input_ranks_match]
     output_input_ranks = unique_input_ranks_global[input_ranks_match]
     output_input_idxs = unique_input_idxs_global[input_ranks_match]
     if vom._parent_mesh.extruded:
@@ -3748,6 +3774,7 @@ def _vom_original_ordering(vom):
         output_reference_coords,
         output_parent_cell_nums,
         output_ranks,
+        output_on_ranks,
         output_input_ranks,
         output_input_idxs,
         output_base_parent_cell_nums,

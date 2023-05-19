@@ -242,6 +242,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         ("globalindex", 1, IntType),
         ("inputrank", 1, IntType),
         ("inputindex", 1, IntType),
+        ("onrank", 1, IntType),
     ]
     if parentmesh.extruded:
         default_extra_fields.append(("parentcellbasenum", 1, IntType))
@@ -334,13 +335,24 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
     # Check that the rank numbering is correct. Since we know all points are at
     # the midpoints of cells, there should be no disagreement about cell
     # ownership and the voting algorithm should have no effect.
-    ranks = np.copy(swarm.getField("DMSwarm_rank"))
+    owned_ranks = np.copy(swarm.getField("DMSwarm_rank"))
     swarm.restoreField("DMSwarm_rank")
     if exclude_halos:
-        assert np.array_equal(ranks, inputlocalpointcoordranks)
+        assert np.array_equal(owned_ranks, inputlocalpointcoordranks)
     elif parentmesh.comm.size > 1:
-        # The input ranks should be a subset of the ranks on the swarm
-        assert np.all(np.isin(inputlocalpointcoordranks, ranks))
+        # The input ranks should be a subset of the owned ranks on the swarm
+        assert np.all(np.isin(inputlocalpointcoordranks, owned_ranks))
+
+    on_ranks = np.copy(swarm.getField("onrank"))
+    swarm.restoreField("onrank")
+    if exclude_halos:
+        assert np.array_equal(on_ranks, owned_ranks)
+    elif parentmesh.comm.size > 1:
+        # On ranks should match this rank
+        assert np.all(on_ranks == parentmesh.comm.rank)
+        # The ranks which the points are on should be a superset of the owned
+        # ranks on the swarm
+        assert np.all(np.isin(on_ranks, owned_ranks))
 
     # check that the input rank is correct
     input_ranks = np.copy(swarm.getField("inputrank"))
