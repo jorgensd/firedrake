@@ -2297,7 +2297,12 @@ values from f.)"""
 
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def input_ordering(self):
-        "Return the input ordering of the mesh vertices as a VertexOnlyMesh."
+        """
+        Return the input ordering of the mesh vertices as a VertexOnlyMesh.
+
+        Note that if ``redundant=True`` at mesh creation, all the vertices
+        will be returned on rank 0.
+        """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
         return self._input_ordering
@@ -2680,7 +2685,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     by a list of coordinates.
 
     :arg mesh: The unstructured mesh in which to immerse the vertex only mesh.
-        See note below for when this is a ``VertexOnlyMesh``.
     :arg vertexcoords: A list of coordinate tuples which defines the vertices.
     :kwarg missing_points_behaviour: optional string argument for what to do
         when vertices which are outside of the mesh are discarded. If
@@ -2722,26 +2726,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         If the same coordinates are supplied more than once, they are always
         assumed to be a new vertex.
 
-    .. note::
-        When the supplied ``mesh`` argument is a ``VertexOnlyMesh`` (A), the
-        newly created ``VertexOnlyMesh`` (B)  will have the same number of
-        vertices as the supplied ``VertexOnlyMesh`` (A) but the vertices will
-        be reordered to match the ordering and rank decomposition of the
-        ``vertexcoords`` argument used to create the original
-        ``VertexOnlyMesh`` (A). When doing this, we require the input
-        ``vertexcoords`` for the creation of (B) to be empty since all the
-        vertex informaion is contained in the supplied ``VertexOnlyMesh`` (A).
-        The ``redundant`` argument has no effect in this case.
-
-        There is no need to explicitly do this, any created ``VertexOnlyMesh``
-        (A) has an ``.input_ordering`` attribute which produces this
-        ``VertexOnlyMesh`` (B).
-
-        Note that if ``redundant=True`` when the original ``VertexOnlyMesh``
-        (A) was generated, all points on the new ``VertexOnlyMesh`` (B) will be
-        found on rank 0 since that was where they were taken from.
-
-
     """
     from firedrake_citations import Citations
     Citations().register("nixonhill2023consistent")
@@ -2765,8 +2749,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
         raise ValueError("Point coordinates must have zero imaginary part")
 
     if gdim != tdim:
-        if not isinstance(mesh.topology, VertexOnlyMeshTopology):
-            raise NotImplementedError("Immersed manifold meshes are not supported")
+        raise NotImplementedError("Immersed manifold meshes are not supported")
 
     # Bendy meshes require a smarter bounding box algorithm at partition and
     # (especially) cell level. Projecting coordinates to Bernstein may be
@@ -2785,8 +2768,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     # implemented. Whether one or both of these is needed is unclear.
 
     if pdim != gdim:
-        if not isinstance(mesh.topology, VertexOnlyMeshTopology):
-            raise NotImplementedError("Immersed manifold meshes are not supported")
+        raise ValueError(f"Mesh geometric dimension {gdim} must match point list dimension {pdim}")
 
     swarm, original_swarm, n_missing_points = _pic_swarm_in_mesh(
         mesh, vertexcoords, tolerance=tolerance, redundant=redundant, exclude_halos=True
@@ -3042,96 +3024,65 @@ def _pic_swarm_in_mesh(
     plex = parent_mesh.topology.topology_dm
     tdim = parent_mesh.topological_dimension()
     gdim = parent_mesh.geometric_dimension()
-    # Make sure we have the correct dimensions if we've got a VertexOnlyMesh
-    original_parent_mesh = parent_mesh
-    while isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
-        parent_mesh = parent_mesh._parent_mesh
-        tdim = parent_mesh.topological_dimension()
-        gdim = parent_mesh.geometric_dimension()
-    parent_mesh = original_parent_mesh
 
-    if not isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
-        # Usual branch
-        (
-            coords,
-            coords_idxs,
-            reference_coords,
-            parent_cell_nums,
-            ranks,
-            on_ranks,
-            input_ranks,
-            input_coords_idxs,
-            missing_coords_idxs,
-        ) = _parent_mesh_embedding(
-            parent_mesh,
-            coords,
-            tolerance,
-            redundant,
-            exclude_halos,
-            remove_missing_points=False,
+    (
+        coords,
+        coords_idxs,
+        reference_coords,
+        parent_cell_nums,
+        ranks,
+        on_ranks,
+        input_ranks,
+        input_coords_idxs,
+        missing_coords_idxs,
+    ) = _parent_mesh_embedding(
+        parent_mesh,
+        coords,
+        tolerance,
+        redundant,
+        exclude_halos,
+        remove_missing_points=False,
+    )
+    if parent_mesh.extruded:
+        # need to store the base parent cell number and the height to be able
+        # to map point coordinates back to the parent mesh
+        if parent_mesh.variable_layers:
+            raise NotImplementedError(
+                "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
+            )
+        base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
+            parent_cell_nums, parent_mesh.layers
         )
-        if parent_mesh.extruded:
-            # need to store the base parent cell number and the height to be able
-            # to map point coordinates back to the parent mesh
-            if parent_mesh.variable_layers:
-                raise NotImplementedError(
-                    "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
-                )
-            base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
-                parent_cell_nums, parent_mesh.layers
-            )
-            plex_parent_cell_nums = _plex_parent_cell_nums(
-                parent_mesh, base_parent_cell_nums
-            )
-        else:
-            base_parent_cell_nums = None
-            extrusion_heights = None
-            plex_parent_cell_nums = _plex_parent_cell_nums(
-                parent_mesh, parent_cell_nums
-            )
-        n_missing_points = len(missing_coords_idxs)
-
-        swarm = _dmswarm_create(
-            fields,
-            parent_mesh.comm,
-            plex,
-            coords,
-            plex_parent_cell_nums,
-            coords_idxs,
-            reference_coords,
-            parent_cell_nums,
-            ranks,
-            on_ranks,
-            input_ranks,
-            input_coords_idxs,
-            base_parent_cell_nums,
-            extrusion_heights,
-            parent_mesh.extruded,
-            tdim,
-            gdim,
+        plex_parent_cell_nums = _plex_parent_cell_nums(
+            parent_mesh, base_parent_cell_nums
         )
     else:
-        # Use saved information from the VertexOnlyMesh
-        swarm = parent_mesh.topology_dm
-        coords = swarm.getField("DMSwarmPIC_coor").reshape((-1, gdim))
-        swarm.restoreField("DMSwarmPIC_coor")
-        plex_parent_cell_nums = swarm.getField("DMSwarm_cellid")
-        swarm.restoreField("DMSwarm_cellid")
-        coords_idxs = swarm.getField("globalindex")
-        swarm.restoreField("globalindex")
-        reference_coords = swarm.getField("refcoord").reshape((-1, tdim))
-        swarm.restoreField("refcoord")
-        parent_cell_nums = swarm.getField("parentcellnum")
-        swarm.restoreField("parentcellnum")
-        ranks = swarm.getField("DMSwarm_rank")
-        swarm.restoreField("DMSwarm_rank")
-        on_ranks = swarm.getField("onrank")
-        swarm.restoreField("onrank")
-        input_ranks = swarm.getField("inputrank")
-        swarm.restoreField("inputrank")
-        input_coords_idxs = swarm.getField("inputindex")
-        swarm.restoreField("inputindex")
-        n_missing_points = 0
+        base_parent_cell_nums = None
+        extrusion_heights = None
+        plex_parent_cell_nums = _plex_parent_cell_nums(
+            parent_mesh, parent_cell_nums
+        )
+    n_missing_points = len(missing_coords_idxs)
+
+    swarm = _dmswarm_create(
+        fields,
+        parent_mesh.comm,
+        plex,
+        coords,
+        plex_parent_cell_nums,
+        coords_idxs,
+        reference_coords,
+        parent_cell_nums,
+        ranks,
+        on_ranks,
+        input_ranks,
+        input_coords_idxs,
+        base_parent_cell_nums,
+        extrusion_heights,
+        parent_mesh.extruded,
+        tdim,
+        gdim,
+    )
 
     original_ordering_swarm = _vom_original_ordering(
         parent_mesh.comm,
@@ -3148,9 +3099,6 @@ def _pic_swarm_in_mesh(
         parent_mesh.extruded,
         parent_mesh.layers,
     )
-
-    if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
-        swarm = original_ordering_swarm
 
     return swarm, original_ordering_swarm, n_missing_points
 
@@ -3662,11 +3610,6 @@ def _vom_original_ordering(
     """
     Create a DMSwarm with the original ordering of the coordinates in a vertex
     only mesh embedded using ``_parent_mesh_embedding``.
-
-    Notes
-    -----
-    If we supply a vertex-only mesh to this function which was created using
-    this function, we should get the same ordering back.
     """
     ncoords_local = len(coords_local)
     gdim = coords_local.shape[1]
