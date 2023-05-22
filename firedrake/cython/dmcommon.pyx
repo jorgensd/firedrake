@@ -1637,7 +1637,6 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
         PetscInt v, vStart, vEnd, offset, dm_offset
         PetscInt i, dim = shape[1]
         np.ndarray[PetscScalar, ndim=2, mode="c"] dm_coords, coords
-        np.ndarray[PetscInt, ndim=1, mode="c"] parent_cell_nums
 
     get_depth_stratum(dm.dm, 0, &vStart, &vEnd)
 
@@ -1656,15 +1655,11 @@ def reordered_coords(PETSc.DM dm, PETSc.Section global_numbering, shape):
         # dm.restoreField is called too!
         # NOTE DMSwarm coords field DMSwarmPIC_coor always stored as real
         dm_coords = dm.getField("DMSwarmPIC_coor").reshape(shape).astype(ScalarType)
-        parent_cell_nums = dm.getField("DMSwarm_cellid")
-        assert len(dm_coords) == len(parent_cell_nums)
-        dm_coords = dm_coords[parent_cell_nums >= 0] # Only retrieve valid coords
         coords = np.empty_like(dm_coords)
         for v in range(vStart, vEnd):
             CHKERR(PetscSectionGetOffset(global_numbering.sec, v, &offset))
             for i in range(dim):
                 coords[offset, i] = dm_coords[v - vStart, i]
-        dm.restoreField("DMSwarm_cellid")
         dm.restoreField("DMSwarmPIC_coor")
     else:
         raise ValueError("Only DMPlex and DMSwarm are supported.")
