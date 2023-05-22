@@ -226,11 +226,8 @@ def test_generate_cell_midpoints(parentmesh, redundant):
 
     # More vm_input checks
     vm_input._parent_mesh is vm
-    vm_input_input = vm_input.input_ordering
-    assert np.array_equal(vm_input_input.coordinates.dat.data_ro, vm_input.coordinates.dat.data_ro)
-    assert vm_input_input._parent_mesh is vm_input
-    assert vm_input_input._parent_mesh._parent_mesh is vm
-    assert vm_input_input._parent_mesh._parent_mesh._parent_mesh is parentmesh
+    with pytest.raises(AttributeError):
+        vm_input_input = vm_input.input_ordering  # Shouldn't have one!
 
     # Have correct number of vertices
     total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)

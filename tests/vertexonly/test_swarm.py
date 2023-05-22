@@ -165,9 +165,9 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         # global cell midpoints only on rank 0. Note that this is the default
         # behaviour so it needn't be specified explicitly.
         if MPI.COMM_WORLD.rank == 0:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields, exclude_halos=exclude_halos)
+            swarm, original_swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputpointcoords, fields=other_fields, exclude_halos=exclude_halos)
         else:
-            swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields, exclude_halos=exclude_halos)
+            swarm, original_swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, np.empty(inputpointcoords.shape), fields=other_fields, exclude_halos=exclude_halos)
         input_rank = 0
         # inputcoordindices is the correct set of input indices for
         # redundant==True but I need to work out where they will be after
@@ -186,7 +186,7 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
         # When redundant == False we expect the same behaviour by only
         # supplying the local cell midpoints on each MPI ranks. Note that this
         # is not the default behaviour so it must be specified explicitly.
-        swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant, exclude_halos=exclude_halos)
+        swarm, original_swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, inputlocalpointcoords, fields=other_fields, redundant=redundant, exclude_halos=exclude_halos)
         input_rank = parentmesh.comm.rank
         input_local_coord_indices = np.arange(len(inputlocalpointcoords))
 
@@ -395,6 +395,13 @@ def test_pic_swarm_in_mesh(parentmesh, redundant, exclude_halos):
             # setPointCoordinates doesn't let us have points in halos so we
             # have to check for a subset
             assert np.all(np.isin(petsclocalparentcellindices, localparentcellindices))
+
+    # check original swarm has correct properties
+    assert original_swarm.fields != swarm.fields  # We don't currently rearrange custom fields
+    assert original_swarm.default_fields == swarm.default_fields
+    assert original_swarm.default_extra_fields == swarm.default_extra_fields
+    assert original_swarm.other_fields != swarm.other_fields
+    assert isinstance(original_swarm.getCellDM(), PETSc.DMSwarm)
 
     # out_of_mesh_point = np.full((2, parentmesh.geometric_dimension()), np.inf)
     # swarm, n_missing_coords = mesh._pic_swarm_in_mesh(parentmesh, out_of_mesh_point, fields=fields)
