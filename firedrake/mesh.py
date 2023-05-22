@@ -3026,15 +3026,15 @@ def _pic_swarm_in_mesh(
     gdim = parent_mesh.geometric_dimension()
 
     (
-        coords,
-        coords_idxs,
-        reference_coords,
-        parent_cell_nums,
-        ranks,
-        on_ranks,
-        input_ranks,
-        input_coords_idxs,
-        missing_coords_idxs,
+        coords_local,
+        global_idxs_local,
+        reference_coords_local,
+        parent_cell_nums_local,
+        owned_ranks_local,
+        on_ranks_local,
+        input_ranks_local,
+        input_coords_idxs_local,
+        missing_global_idxs,
     ) = _parent_mesh_embedding(
         parent_mesh,
         coords,
@@ -3051,7 +3051,7 @@ def _pic_swarm_in_mesh(
                 "Cannot create a DMSwarm in an ExtrudedMesh with variable layers."
             )
         base_parent_cell_nums, extrusion_heights = _parent_extrusion_numbering(
-            parent_cell_nums, parent_mesh.layers
+            parent_cell_nums_local, parent_mesh.layers
         )
         plex_parent_cell_nums = _plex_parent_cell_nums(
             parent_mesh, base_parent_cell_nums
@@ -3060,23 +3060,24 @@ def _pic_swarm_in_mesh(
         base_parent_cell_nums = None
         extrusion_heights = None
         plex_parent_cell_nums = _plex_parent_cell_nums(
-            parent_mesh, parent_cell_nums
+            parent_mesh, parent_cell_nums_local
         )
-    n_missing_points = len(missing_coords_idxs)
+    n_missing_points = len(missing_global_idxs)
 
+    # Exclude the invisible points at this stage
     swarm = _dmswarm_create(
         fields,
         parent_mesh.comm,
         plex,
-        coords,
+        coords_local,
         plex_parent_cell_nums,
-        coords_idxs,
-        reference_coords,
-        parent_cell_nums,
-        ranks,
-        on_ranks,
-        input_ranks,
-        input_coords_idxs,
+        global_idxs_local,
+        reference_coords_local,
+        parent_cell_nums_local,
+        owned_ranks_local,
+        on_ranks_local,
+        input_ranks_local,
+        input_coords_idxs_local,
         base_parent_cell_nums,
         extrusion_heights,
         parent_mesh.extruded,
@@ -3084,18 +3085,20 @@ def _pic_swarm_in_mesh(
         gdim,
     )
 
+    # Note when getting original ordering for extruded meshes we recalculate
+    # the base_parent_cell_nums and extrusion_heights
     original_ordering_swarm = _vom_original_ordering(
         parent_mesh.comm,
         swarm,
-        coords,
+        coords_local,
         plex_parent_cell_nums,
-        coords_idxs,
-        reference_coords,
-        parent_cell_nums,
-        ranks,
-        on_ranks,
-        input_ranks,
-        input_coords_idxs,
+        global_idxs_local,
+        reference_coords_local,
+        parent_cell_nums_local,
+        owned_ranks_local,
+        on_ranks_local,
+        input_ranks_local,
+        input_coords_idxs_local,
         parent_mesh.extruded,
         parent_mesh.layers,
     )
@@ -3410,15 +3413,15 @@ def _parent_mesh_embedding(
         which owns them but will be marked as not being not found in the mesh
         by setting their associated cell numbers to -1 and their reference
         coordinates to NaNs. This does not effect the behaviour of
-        ``missing_coords_idxs``.
+        ``missing_global_idxs``.
 
     Returns
     -------
-    coords : ``np.ndarray``
+    coords_embedded : ``np.ndarray``
         The coordinates of the points that were embedded on this rank. If
         ``remove_missing_points`` if False then this will include points that
         were specified on this rank but not found in the mesh.
-    coords_idxs : ``np.ndarray``
+    global_idxs : ``np.ndarray``
         The global indices of the points on this rank.
     reference_coords : ``np.ndarray``
         The reference coordinates of the points that were embedded as given by
@@ -3429,7 +3432,7 @@ def _parent_mesh_embedding(
         coordinates that were embedded in the local mesh partition. If
         ``remove_missing_points`` is False then the missing point numbers
         will be -1.
-    ranks : ``np.ndarray``
+    owned_ranks : ``np.ndarray``
         The MPI rank of the process that owns the parent cell of each point.
         By "owns" we mean the mesh partition where the parent cell is not in
         the halo. If a point is not found in the mesh then the rank is -1.
@@ -3440,13 +3443,13 @@ def _parent_mesh_embedding(
         which the point was originally specified.
     input_ranks : ``np.ndarray``
         The MPI rank of the process that specified the input ``coords``.
-    input_coords_idxs : ``np.ndarray``
+    input_coords_idx : ``np.ndarray``
         The indices of the points in the input ``coords`` array that were
         embedded. If ``remove_missing_points`` is False then this will include
         points that were specified on this rank but not found in the mesh.
-    missing_coords_idxs : ``np.ndarray``
+    missing_global_idxs : ``np.ndarray``
         The indices of the points in the input coords array that were not
-        embedded.
+        embedded on any rank.
     """
 
     if isinstance(parent_mesh.topology, VertexOnlyMeshTopology):
@@ -3466,7 +3469,7 @@ def _parent_mesh_embedding(
         ncoords_local = coords_local.shape[0]
         coords_global = coords_local
         ncoords_global = coords_global.shape[0]
-        coords_idxs = np.arange(coords_global.shape[0])
+        global_idxs_global = np.arange(coords_global.shape[0])
         input_coords_idxs_local = np.arange(ncoords_local)
         input_coords_idxs_global = input_coords_idxs_local
         input_ranks_local = np.zeros(ncoords_local, dtype=int)
@@ -3496,8 +3499,8 @@ def _parent_mesh_embedding(
         # # For rank 0 we make use of the fact that sum([]) = 0.
         # startidx = sum(ncoords_local_allranks[:parent_mesh._comm.rank])
         # endidx = startidx + ncoords_local
-        # coords_idxs = np.arange(startidx, endidx)
-        coords_idxs = np.arange(coords_global.shape[0])
+        # global_idxs_global = np.arange(startidx, endidx)
+        global_idxs_global = np.arange(coords_global.shape[0])
         input_coords_idxs_local = np.arange(ncoords_local)
         input_coords_idxs_global = np.empty(ncoords_global, dtype=int)
         parent_mesh._comm.Allgatherv(
@@ -3557,38 +3560,38 @@ def _parent_mesh_embedding(
         ref_cell_dists_l1_and_ranks, op=array_lexicographic_mpi_op
     )
 
-    ranks = ref_cell_dists_l1_and_ranks[:, 1]
+    owned_ranks = ref_cell_dists_l1_and_ranks[:, 1]
 
     # Any ranks which are still np.inf are not in the mesh
-    missing_coords_idxs = np.where(ranks == np.inf)[0]
+    missing_global_idxs = np.where(owned_ranks == np.inf)[0]
 
     if not remove_missing_points:
         missing_coords_idxs_on_rank = np.where(
-            (ranks == np.inf) & (input_ranks_global == parent_mesh.comm.rank)
+            (owned_ranks == np.inf) & (input_ranks_global == parent_mesh.comm.rank)
         )[0]
         locally_visible[missing_coords_idxs_on_rank] = True
         parent_cell_nums[missing_coords_idxs_on_rank] = -1
         reference_coords[missing_coords_idxs_on_rank, :] = np.nan
-        ranks[missing_coords_idxs_on_rank] = -1
+        owned_ranks[missing_coords_idxs_on_rank] = -1
 
     if exclude_halos:
         off_rank_coords_idxs = np.where(
-            (ranks != parent_mesh.comm.rank) & (ranks != -1)
+            (owned_ranks != parent_mesh.comm.rank) & (owned_ranks != -1)
         )[0]
         locally_visible[off_rank_coords_idxs] = False
 
-    on_ranks = np.full(ranks.shape, parent_mesh.comm.rank)
+    on_ranks = np.full(owned_ranks.shape, parent_mesh.comm.rank)
 
     return (
         np.compress(locally_visible, coords_global, axis=0),
-        np.compress(locally_visible, coords_idxs, axis=0),
+        np.compress(locally_visible, global_idxs_global, axis=0),
         np.compress(locally_visible, reference_coords, axis=0),
         np.compress(locally_visible, parent_cell_nums, axis=0),
-        np.compress(locally_visible, ranks, axis=0),
+        np.compress(locally_visible, owned_ranks, axis=0),
         np.compress(locally_visible, on_ranks, axis=0),
         np.compress(locally_visible, input_ranks_global, axis=0),
         np.compress(locally_visible, input_coords_idxs_global, axis=0),
-        missing_coords_idxs,
+        missing_global_idxs,
     )
 
 
