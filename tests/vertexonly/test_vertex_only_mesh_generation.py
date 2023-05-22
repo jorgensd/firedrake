@@ -175,6 +175,7 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
         assert m.locate_cell(stored_vertex_coords[i]) == stored_parent_cell_nums[i]
     # Input is correct (and includes points that were out of bounds)
     vm_input = vm.input_ordering
+    assert vm_input.name == name + "_input_ordering"
     assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
 
 
@@ -227,7 +228,7 @@ def test_generate_cell_midpoints(parentmesh, redundant):
     # More vm_input checks
     vm_input._parent_mesh is vm
     with pytest.raises(AttributeError):
-        vm_input_input = vm_input.input_ordering  # Shouldn't have one!
+        vm_input.input_ordering  # Shouldn't have one!
 
     # Have correct number of vertices
     total_cells = MPI.COMM_WORLD.allreduce(len(vm.coordinates.dat.data_ro), op=MPI.SUM)

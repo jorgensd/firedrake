@@ -2298,10 +2298,17 @@ values from f.)"""
     @utils.cached_property  # TODO: Recalculate if mesh moves
     def input_ordering(self):
         """
-        Return the input ordering of the mesh vertices as a VertexOnlyMesh.
+        Return the input ordering of the mesh vertices as a VertexOnlyMesh
+        whilst preserving other information, such as the global indices and
+        parent mesh cell information.
 
-        Note that if ``redundant=True`` at mesh creation, all the vertices
-        will be returned on rank 0.
+        Notes
+        -----
+        If ``redundant=True`` at mesh creation, all the vertices will
+        be returned on rank 0.
+
+        Any points that were not found in the original mesh when it was created
+        will still be present here in their originally supplied order.
         """
         if not isinstance(self.topology, VertexOnlyMeshTopology):
             raise AttributeError("Input ordering is only defined for vertex-only meshes.")
@@ -2790,7 +2797,7 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
     name = name if name is not None else mesh.name + "_immersed_vom"
     topology = VertexOnlyMeshTopology(swarm, mesh.topology, name=name, reorder=False)
 
-    def initialise(mesh, swarm, tdim):
+    def initialise(mesh, swarm, tdim, name):
 
         # Topology
         topology = VertexOnlyMeshTopology(swarm, mesh.topology, name=name, reorder=False)
@@ -2834,11 +2841,11 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
 
         return vmesh
 
-    vmesh = initialise(mesh, swarm, tdim)
+    vmesh_out = initialise(mesh, swarm, tdim, name)
     # Make the VOM which uses the original ordering of the points
-    vmesh._input_ordering = initialise(vmesh, original_swarm, 0)
+    vmesh_out._input_ordering = initialise(vmesh_out, original_swarm, 0, name + "_input_ordering")
 
-    return vmesh
+    return vmesh_out
 
 
 class FiredrakeDMSwarm(PETSc.DMSwarm):
@@ -3043,6 +3050,7 @@ def _pic_swarm_in_mesh(
         exclude_halos,
         remove_missing_points=False,
     )
+    visible_idxs = parent_cell_nums_local != -1
     if parent_mesh.extruded:
         # need to store the base parent cell number and the height to be able
         # to map point coordinates back to the parent mesh
@@ -3056,12 +3064,14 @@ def _pic_swarm_in_mesh(
         plex_parent_cell_nums = _plex_parent_cell_nums(
             parent_mesh, base_parent_cell_nums
         )
+        base_parent_cell_nums_visible = base_parent_cell_nums[visible_idxs]
+        extrusion_heights_visible = extrusion_heights[visible_idxs]
     else:
-        base_parent_cell_nums = None
-        extrusion_heights = None
         plex_parent_cell_nums = _plex_parent_cell_nums(
             parent_mesh, parent_cell_nums_local
         )
+        base_parent_cell_nums_visible = None
+        extrusion_heights_visible = None
     n_missing_points = len(missing_global_idxs)
 
     # Exclude the invisible points at this stage
@@ -3069,17 +3079,17 @@ def _pic_swarm_in_mesh(
         fields,
         parent_mesh.comm,
         plex,
-        coords_local,
-        plex_parent_cell_nums,
-        global_idxs_local,
-        reference_coords_local,
-        parent_cell_nums_local,
-        owned_ranks_local,
-        on_ranks_local,
-        input_ranks_local,
-        input_coords_idxs_local,
-        base_parent_cell_nums,
-        extrusion_heights,
+        coords_local[visible_idxs],
+        plex_parent_cell_nums[visible_idxs],
+        global_idxs_local[visible_idxs],
+        reference_coords_local[visible_idxs],
+        parent_cell_nums_local[visible_idxs],
+        owned_ranks_local[visible_idxs],
+        on_ranks_local[visible_idxs],
+        input_ranks_local[visible_idxs],
+        input_coords_idxs_local[visible_idxs],
+        base_parent_cell_nums_visible,
+        extrusion_heights_visible,
         parent_mesh.extruded,
         tdim,
         gdim,
@@ -3722,7 +3732,10 @@ def _vom_original_ordering(
     output_input_ranks = unique_input_ranks_global[input_ranks_match]
     output_input_idxs = unique_input_idxs_global[input_ranks_match]
     if extruded:
-        output_base_parent_cell_nums, output_extrusion_heights = _parent_extrusion_numbering(output_parent_cell_nums[input_ranks_match], layers)
+        (
+            output_base_parent_cell_nums,
+            output_extrusion_heights,
+        ) = _parent_extrusion_numbering(output_parent_cell_nums, layers)
     else:
         output_base_parent_cell_nums = None
         output_extrusion_heights = None
