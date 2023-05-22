@@ -1550,6 +1550,11 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         if reorder:
             raise NotImplementedError("Mesh reordering not implemented for vertex only meshes yet.")
 
+        # Negative ranks are missing points - we don't include these in the
+        # vertex count
+        self._missing_points = sum(swarm.getField("DMSwarm_rank") < 0)
+        swarm.restoreField("DMSwarm_rank")
+
         dmcommon.validate_mesh(swarm)
         swarm.setFromOptions()
 
@@ -1652,7 +1657,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         return 0
 
     def num_vertices(self):
-        return self.topology_dm.getLocalSize()
+        return self.topology_dm.getLocalSize() - self._missing_points
 
     def num_entities(self, d):
         if d > 0:
@@ -3180,8 +3185,11 @@ def _pic_swarm_in_mesh(
     swarm.finalizeFieldRegister()
     # Note that no new fields can now be associated with the DMSWARM.
 
-    num_vertices = len(coords)
-    swarm.setLocalSizes(num_vertices, -1)
+    # Create a swarm that's big enough to hold all the points,
+    # including missing ones
+    swarm.setLocalSizes(len(coords), -1)
+
+    locally_missing_points = sum(parent_cell_nums < 0)
 
     # Add point coordinates. This amounts to our own implementation of
     # DMSwarmSetPointCoordinates because Firedrake's mesh coordinate model
@@ -3192,10 +3200,10 @@ def _pic_swarm_in_mesh(
     # dimension is based on the topological dimension of the base mesh.
 
     # NOTE ensure that swarm.restoreField is called for each field too!
-    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((num_vertices, gdim))
+    swarm_coords = swarm.getField("DMSwarmPIC_coor").reshape((len(coords), gdim))
     swarm_parent_cell_nums = swarm.getField("DMSwarm_cellid")
     field_parent_cell_nums = swarm.getField("parentcellnum")
-    field_reference_coords = swarm.getField("refcoord").reshape((num_vertices, tdim))
+    field_reference_coords = swarm.getField("refcoord").reshape((len(coords), tdim))
     field_global_index = swarm.getField("globalindex")
     field_rank = swarm.getField("DMSwarm_rank")
     field_on_rank = swarm.getField("onrank")
@@ -3234,7 +3242,7 @@ def _pic_swarm_in_mesh(
     # Set the `SF` graph to advertises no shared points (since the halo
     # is now empty) by setting the leaves to an empty list
     sf = swarm.getPointSF()
-    nroots = swarm.getLocalSize()
+    nroots = swarm.getLocalSize() -  locally_missing_points
     sf.setGraph(nroots, None, [])
     swarm.setPointSF(sf)
 
