@@ -3097,7 +3097,7 @@ def _pic_swarm_in_mesh(
 
     # Note when getting original ordering for extruded meshes we recalculate
     # the base_parent_cell_nums and extrusion_heights
-    original_ordering_swarm = _vom_original_ordering(
+    original_ordering_swarm = _swarm_original_ordering_preserve(
         parent_mesh.comm,
         swarm,
         coords_local,
@@ -3605,9 +3605,9 @@ def _parent_mesh_embedding(
     )
 
 
-def _vom_original_ordering(
+def _swarm_original_ordering_preserve(
     comm,
-    plex,
+    swarm,
     coords_local,
     plex_parent_cell_nums_local,
     global_idxs_local,
@@ -3622,7 +3622,8 @@ def _vom_original_ordering(
 ):
     """
     Create a DMSwarm with the original ordering of the coordinates in a vertex
-    only mesh embedded using ``_parent_mesh_embedding``.
+    only mesh embedded using ``_parent_mesh_embedding`` whilst preserving the
+    values of all other DMSwarm fields except any added fields.
     """
     ncoords_local = len(coords_local)
     gdim = coords_local.shape[1]
@@ -3749,7 +3750,7 @@ def _vom_original_ordering(
     return _dmswarm_create(
         [],
         comm,
-        plex,
+        swarm,
         output_coords,
         output_plex_parent_cell_nums,
         output_global_idxs,
