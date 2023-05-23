@@ -176,7 +176,12 @@ def verify_vertexonly_mesh(m, vm, inputvertexcoords, name):
     # Input is correct (and includes points that were out of bounds)
     vm_input = vm.input_ordering
     assert vm_input.name == name + "_input_ordering"
-    assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
+    # We create vertex-only meshes using redundant=True by default so check
+    # that vm_input has vertices on rank 0 only
+    if MPI.COMM_WORLD.rank == 0:
+        assert np.array_equal(vm_input.coordinates.dat.data_ro.reshape(inputvertexcoords.shape), inputvertexcoords)
+    else:
+        assert len(vm_input.coordinates.dat.data_ro) == 0
 
 
 def test_generate_cell_midpoints(parentmesh, redundant):
