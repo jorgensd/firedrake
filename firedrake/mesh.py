@@ -2795,7 +2795,6 @@ def VertexOnlyMesh(mesh, vertexcoords, missing_points_behaviour='error',
                 raise ValueError("missing_points_behaviour must be None, 'error' or 'warn'")
 
     name = name if name is not None else mesh.name + "_immersed_vom"
-    topology = VertexOnlyMeshTopology(swarm, mesh.topology, name=name, reorder=False)
 
     def initialise(mesh, swarm, tdim, name):
 
