@@ -254,8 +254,17 @@ def test_generate_cell_midpoints(parentmesh, redundant):
         if cell_num is not None:
             assert (f.dat.data_ro[cell_num] == vm.coordinates.dat.data_ro[i]).all()
 
-    # Have correct pyop2 labels
-    assert vm.cell_set.sizes == parentmesh.cell_set.sizes
+    # Have correct pyop2 labels as implied by cell set sizes
+    if parentmesh.extruded:
+        layers = parentmesh.layers
+        if parentmesh.variable_layers:
+            # I think the below is correct but it's not actually tested...
+            expected = tuple(size*(layer-1) for size, layer in zip(parentmesh.cell_set.sizes, layers))
+            assert vm.cell_set.sizes == expected
+        else:
+            assert vm.cell_set.sizes == tuple(size*(layers-1) for size in parentmesh.cell_set.sizes)
+    else:
+        assert vm.cell_set.sizes == parentmesh.cell_set.sizes
 
 
 @pytest.mark.parallel

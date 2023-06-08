@@ -1806,8 +1806,10 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         for i in range(ncore_indices):
             core_index = core_indices[i]
             is_cell = cStart <= core_index and core_index < cEnd
-            if is_cell and core_index in plex_cells:
-                swarm_label_core.setValue(core_index, 1)
+            if is_cell:
+                for plex_cell_idx, plex_cell in enumerate(plex_cells):
+                    if core_index == plex_cell:
+                        swarm_label_core.setValue(plex_cell_idx, 1)
         CHKERR(ISRestoreIndices(core_is.iset, &core_indices))
 
     if owned_is.iset != NULL:
@@ -1816,8 +1818,10 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         for i in range(nowned_indices):
             owned_index = owned_indices[i]
             is_cell = cStart <= owned_index and owned_index < cEnd
-            if is_cell and owned_index in plex_cells:
-                swarm_label_owned.setValue(owned_index, 1)
+            if is_cell:
+                for plex_cell_idx, plex_cell in enumerate(plex_cells):
+                    if owned_index == plex_cell:
+                        swarm_label_owned.setValue(plex_cell_idx, 1)
         CHKERR(ISRestoreIndices(owned_is.iset, &owned_indices))
 
     if ghost_is.iset != NULL:
@@ -1826,8 +1830,10 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         for i in range(nghost_indices):
             ghost_index = ghost_indices[i]
             is_cell = cStart <= ghost_index and ghost_index < cEnd
-            if is_cell and ghost_index in plex_cells:
-                swarm_label_ghost.setValue(ghost_index, 1)
+            if is_cell:
+                for plex_cell_idx, plex_cell in enumerate(plex_cells):
+                    if ghost_index == plex_cell:
+                        swarm_label_ghost.setValue(plex_cell_idx, 1)
         CHKERR(ISRestoreIndices(ghost_is.iset, &ghost_indices))
 
     return

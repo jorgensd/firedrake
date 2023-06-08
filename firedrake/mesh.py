@@ -1576,50 +1576,7 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
 
         # Mark OP2 entities and derive the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
-            if isinstance(parentmesh.topology_dm, PETSc.DMSwarm):
-                dmcommon.mark_entity_classes(self.topology_dm)
-            else:
-                # Mark entity classes using the classes of the parent mesh
-                swarm.createLabel("pyop2_core")
-                swarm.createLabel("pyop2_owned")
-                swarm.createLabel("pyop2_ghost")
-                swarm_label_core = swarm.getLabel("pyop2_core")
-                swarm_label_owned = swarm.getLabel("pyop2_owned")
-                swarm_label_ghost = swarm.getLabel("pyop2_ghost")
-                plex = self._parent_mesh.topology_dm
-
-                cStart, cEnd = plex.getHeightStratum(0)
-                label_core = plex.getLabel("pyop2_core")
-                label_owned = plex.getLabel("pyop2_owned")
-                label_ghost = plex.getLabel("pyop2_ghost")
-                core_is = label_core.getStratumIS(1)
-                # owned_is = label_owned.getStratumIS(1)
-                # ghost_is = label_ghost.getStratumIS(1)
-                core_indices = core_is.getIndices()
-                # owned_indices = owned_is.getIndices()
-                # ghost_indices = ghost_is.getIndices()
-                plex_cells = swarm.getField("DMSwarm_cellid")
-                swarm.restoreField("DMSwarm_cellid")
-                coords = swarm.getField("DMSwarmPIC_coor")
-                swarm.restoreField("DMSwarmPIC_coor")
-
-                import pdb; pdb.set_trace()
-
-
-                for i in core_indices:
-                    is_cell = cStart <= i and i < cEnd
-                    if is_cell and i in plex_cells:
-                        for plex_cell_idx, plex_cell in enumerate(plex_cells):
-                            if i == plex_cell:
-                                swarm_label_core.setValue(plex_cell_idx, 1)
-                # for i in owned_indices:
-                #     is_cell = cStart <= i and i < cEnd
-                #     if is_cell and i in plex_cells:
-                #         swarm_label_owned.setValue(i, 1)
-                # for i in ghost_indices:
-                #     is_cell = cStart <= i and i < cEnd
-                #     if is_cell and i in plex_cells:
-                #         swarm_label_ghost.setValue(i, 1)
+            dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
 
             self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
