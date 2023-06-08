@@ -1574,9 +1574,15 @@ class VertexOnlyMeshTopology(AbstractMeshTopology):
         cell = ufl.Cell("vertex")
         self._ufl_mesh = ufl.Mesh(ufl.VectorElement("DG", cell, 0, dim=cell.topological_dimension()))
 
-        # Mark OP2 entities and derive the resulting Swarm numbering
+        # Mark OP2 entities using the Swarm's parent plex or swarm and derive
+        # the resulting Swarm numbering
         with PETSc.Log.Event("Mesh: numbering"):
-            dmcommon.mark_entity_classes(self.topology_dm)
+            if isinstance(self._parent_mesh.topology_dm, PETSc.DMSwarm):
+                # Special case - we only have this when we are generating the
+                # original ordering of a vertex-only mesh.
+                dmcommon.mark_entity_classes(self.topology_dm)
+            else:
+                dmcommon.mark_entity_classes_using_cell_dm(self.topology_dm)
             self._entity_classes = dmcommon.get_entity_classes(self.topology_dm).astype(int)
 
             # Derive a cell numbering from the Swarm numbering

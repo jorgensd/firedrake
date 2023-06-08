@@ -1755,6 +1755,86 @@ def mark_entity_classes(PETSc.DM dm):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
+    """
+    Mark all points in a given Particle in Cell (PIC) DMSwarm according to the
+    PyOP2 entity classes (core, owned, ghost) using the markers of the parent
+    DMPlex or DMSwarm cells (i.e. the cells within which the swarm points are
+    located).
+    """
+    cdef:
+        PETSc.DM plex=None
+        PETSc.IS core_is=None
+        PETSc.IS owned_is=None
+        PETSc.IS ghost_is=None
+        const PetscInt* core_indices = NULL
+        PetscInt core_index
+        PetscInt ncore_indices = 0
+        const PetscInt* owned_indices = NULL
+        PetscInt owned_index
+        PetscInt nowned_indices = 0
+        const PetscInt* ghost_indices = NULL
+        PetscInt ghost_index
+        PetscInt nghost_indices = 0
+        PetscInt cStart, cEnd
+
+    swarm.createLabel("pyop2_core")
+    swarm.createLabel("pyop2_owned")
+    swarm.createLabel("pyop2_ghost")
+    swarm_label_core = swarm.getLabel("pyop2_core")
+    swarm_label_owned = swarm.getLabel("pyop2_owned")
+    swarm_label_ghost = swarm.getLabel("pyop2_ghost")
+
+    plex = swarm.getCellDM()
+
+    # Retrieve the indices into the parent DM at which each label is defined.
+    # The label value of 1 is set in mark_entity_classes.
+    core_is = plex.getStratumIS(b"pyop2_core", 1)
+    owned_is = plex.getStratumIS(b"pyop2_owned", 1)
+    ghost_is = plex.getStratumIS(b"pyop2_ghost", 1)
+
+    # We will filter by the parent DM cell indices (we don't care about markers
+    # of vertices and facets)...
+    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
+    # ... and look for matches to our saved DMSwarm cell indices.
+    plex_cells = swarm.getField("DMSwarm_cellid")
+    swarm.restoreField("DMSwarm_cellid")
+
+    if core_is.iset != NULL:
+        CHKERR(ISGetIndices(core_is.iset, &core_indices))
+        CHKERR(ISGetSize(core_is.iset, &ncore_indices))
+        for i in range(ncore_indices):
+            core_index = core_indices[i]
+            is_cell = cStart <= core_index and core_index < cEnd
+            if is_cell and core_index in plex_cells:
+                swarm_label_core.setValue(core_index, 1)
+        CHKERR(ISRestoreIndices(core_is.iset, &core_indices))
+
+    if owned_is.iset != NULL:
+        CHKERR(ISGetIndices(owned_is.iset, &owned_indices))
+        CHKERR(ISGetSize(owned_is.iset, &nowned_indices))
+        for i in range(nowned_indices):
+            owned_index = owned_indices[i]
+            is_cell = cStart <= owned_index and owned_index < cEnd
+            if is_cell and owned_index in plex_cells:
+                swarm_label_owned.setValue(owned_index, 1)
+        CHKERR(ISRestoreIndices(owned_is.iset, &owned_indices))
+
+    if ghost_is.iset != NULL:
+        CHKERR(ISGetIndices(ghost_is.iset, &ghost_indices))
+        CHKERR(ISGetSize(ghost_is.iset, &nghost_indices))
+        for i in range(nghost_indices):
+            ghost_index = ghost_indices[i]
+            is_cell = cStart <= ghost_index and ghost_index < cEnd
+            if is_cell and ghost_index in plex_cells:
+                swarm_label_ghost.setValue(ghost_index, 1)
+        CHKERR(ISRestoreIndices(ghost_is.iset, &ghost_indices))
+
+    return
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_entity_classes(PETSc.DM dm):
     """Builds PyOP2 entity class offsets for all entity levels.
 
