@@ -431,3 +431,7 @@ def test_pyop2_labelling():
     points = np.asarray([[0.125], [0.375], [0.625], [0.875]])
     vm = VertexOnlyMesh(m, points, redundant=True)
     assert vm.cell_set.sizes == m.cell_set.sizes
+    assert vm.cell_set.total_size == m.cell_set.total_size
+    points = np.asarray([[0.125], [0.125], [0.375], [0.375], [0.625], [0.625], [0.875], [0.875]])
+    vm = VertexOnlyMesh(m, points, redundant=True)
+    assert vm.cell_set.total_size == 2*m.cell_set.total_size
