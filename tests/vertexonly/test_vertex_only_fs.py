@@ -141,6 +141,8 @@ def test_functionspaces(parentmesh, vertexcoords):
     vm = VertexOnlyMesh(parentmesh, vertexcoords, missing_points_behaviour=None)
     functionspace_tests(vm)
     vectorfunctionspace_tests(vm)
+    functionspace_tests(vm.input_ordering)
+    vectorfunctionspace_tests(vm.input_ordering)
 
 
 @pytest.mark.parallel
