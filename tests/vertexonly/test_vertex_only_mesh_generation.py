@@ -433,6 +433,7 @@ def test_inside_boundary_behaviour(parentmesh):
     vm = VertexOnlyMesh(parentmesh, inputcoord, tolerance=1e-16, missing_points_behaviour=None)
     assert vm.cell_set.size == 0 or vm.cell_set.size == 1
 
+
 @pytest.mark.parallel(nprocs=2)
 def test_pyop2_labelling():
     m = UnitIntervalMesh(4)
