@@ -3071,7 +3071,7 @@ def _pic_swarm_in_mesh(
         exclude_halos,
         remove_missing_points=False,
     )
-    if not exclude_halos:
+    if not exclude_halos and parent_mesh.comm.size > 1:
         # reorder the points so that the halos are at the end of the array
         # and the owned points are at the start
         (
