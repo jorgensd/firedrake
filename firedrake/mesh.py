@@ -3144,7 +3144,7 @@ def _pic_swarm_in_mesh(
     remote_ranks_and_idxs[0::2] = remote_ranks
     remote_ranks_and_idxs[1::2] = remote_idxs
     sf = swarm.getPointSF()
-    sf.setGraph(nroots, local_halo_idxs, remote_ranks_and_idxs) # Note, could pass None for local_halo_idxs since we know the halo indices are contiguous.
+    sf.setGraph(nroots, local_halo_idxs, remote_ranks_and_idxs)  # Note, could pass None for local_halo_idxs since we know the halo indices are contiguous.
     swarm.setPointSF(sf)
 
     # Note when getting original ordering for extruded meshes we recalculate

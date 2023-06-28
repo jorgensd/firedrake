@@ -98,6 +98,54 @@ def functionspace_tests(vm):
     # num_vertices (globally) times
     f.interpolate(Constant(2, domain=vm))
     assert np.isclose(assemble(f*dx), 2*num_cells_mpi_global)
+    if "input_ordering" in vm.name:
+        with pytest.raises(AttributeError):
+            W = FunctionSpace(vm.input_ordering, "DG", 0)
+        return
+    # Can interpolate onto the input ordering VOM and we retain values from the
+    # expresson on the main VOM
+    W = FunctionSpace(vm.input_ordering, "DG", 0)
+    h = Function(W)
+    from firedrake.petsc import PETSc
+    from firedrake.utils import IntType
+    sf = PETSc.SF().create(comm=vm.comm)  # This should be attached to the original VOM and will be used to send data to the input ordering
+    nroots = vm.input_ordering.num_cells()  # Number of points we could be attaching leaves to
+    input_ranks = vm.topology_dm.getField("inputrank")
+    vm.topology_dm.restoreField("inputrank")
+    parent_cell_nums = vm.topology_dm.getField("parentcellnum")
+    vm.topology_dm.restoreField("parentcellnum")
+    input_index = vm.topology_dm.getField("inputindex")
+    vm.topology_dm.restoreField("inputindex")
+    idxs_to_include = parent_cell_nums != -1  # only include leaves where points were successfully embedded in the original VOM (i.e. where they were given a parent cell number)
+    input_ranks = input_ranks[idxs_to_include]
+    input_indices = input_index[idxs_to_include]
+    nleaves = len(input_ranks)
+    input_ranks_and_idxs = np.empty(2*nleaves, dtype=IntType)
+    input_ranks_and_idxs[0::2] = input_ranks
+    input_ranks_and_idxs[1::2] = input_indices
+    # local = np.arange(nleaves, dtype=IntType)  # i.e. we can just pass in None
+    sf.setGraph(nroots, None, input_ranks_and_idxs)
+    v = PETSc.Viewer()
+    sf.view(v)
+    h.dat.data_wo_with_halos[:] = -1
+    # Functions on input ordering VOM are roots of the SF
+    # Functions on original VOM are leaves of the SF
+    # Reduce therefore sends data from original VOM to input ordering VOM
+    sf.reduceBegin(MPI.DOUBLE, g.dat.data_ro_with_halos, h.dat.data_wo_with_halos, MPI.REPLACE)
+    sf.reduceEnd(MPI.DOUBLE, g.dat.data_ro_with_halos, h.dat.data_wo_with_halos, MPI.REPLACE)
+    # h.interpolate(g) # This should be equivalent to the above
+    # Exclude points which we know are missing - these should all be equal to -1
+    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum")
+    vm.input_ordering.topology_dm.restoreField("parentcellnum")
+    idxs_to_include = input_ordering_parent_cell_nums != -1
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    # Check that the opposite works
+    g.dat.data_wo_with_halos[:] = -1
+    sf.bcastBegin(MPI.DOUBLE, h.dat.data_ro_with_halos, g.dat.data_wo_with_halos, MPI.REPLACE)
+    sf.bcastEnd(MPI.DOUBLE, h.dat.data_ro_with_halos, g.dat.data_wo_with_halos, MPI.REPLACE)
+    # g.interpolate(h) # This should be equivalent to the above
+    assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
 def vectorfunctionspace_tests(vm):
@@ -134,6 +182,56 @@ def vectorfunctionspace_tests(vm):
     # dimension too.
     f.interpolate(Constant([1] * gdim, domain=vm))
     assert np.isclose(assemble(inner(f, f)*dx), num_cells_mpi_global*gdim)
+    if "input_ordering" in vm.name:
+        with pytest.raises(AttributeError):
+            W = FunctionSpace(vm.input_ordering, "DG", 0)
+        return
+    # Can interpolate onto the input ordering VOM and we retain values from the
+    # expresson on the main VOM
+    W = VectorFunctionSpace(vm.input_ordering, "DG", 0)
+    h = Function(W)
+    from firedrake.petsc import PETSc
+    from firedrake.utils import IntType
+    sf = PETSc.SF().create(comm=vm.comm)  # This should be attached to the original VOM and will be used to send data to the input ordering
+    nroots = vm.input_ordering.num_cells()  # Number of points we could be attaching leaves to
+    input_ranks = vm.topology_dm.getField("inputrank")
+    vm.topology_dm.restoreField("inputrank")
+    parent_cell_nums = vm.topology_dm.getField("parentcellnum")
+    vm.topology_dm.restoreField("parentcellnum")
+    input_index = vm.topology_dm.getField("inputindex")
+    vm.topology_dm.restoreField("inputindex")
+    idxs_to_include = parent_cell_nums != -1  # only include leaves where points were successfully embedded in the original VOM (i.e. where they were given a parent cell number)
+    input_ranks = input_ranks[idxs_to_include]
+    input_indices = input_index[idxs_to_include]
+    nleaves = len(input_ranks)
+    input_ranks_and_idxs = np.empty(2*nleaves, dtype=IntType)
+    input_ranks_and_idxs[0::2] = input_ranks
+    input_ranks_and_idxs[1::2] = input_indices
+    # local = np.arange(nleaves, dtype=IntType)   # i.e. we can just pass in None
+    sf.setGraph(nroots, None, input_ranks_and_idxs)
+    v = PETSc.Viewer()
+    sf.view(v)
+    h.dat.data_wo_with_halos[:] = -1
+    # Functions on input ordering VOM are roots of the SF
+    # Functions on original VOM are leaves of the SF
+    # Reduce therefore sends data from original VOM to input ordering VOM
+    from firedrake.halo import _get_mtype
+    mpi_type, _ = _get_mtype(g.dat)  # This ensures we get the correct MPI type for the data, including the correct data size and dimensional information (so for vector function spaces in 2 dimensions we might need a concatenation of 2 MPI.DOUBLE types)
+    sf.reduceBegin(mpi_type, g.dat.data_ro_with_halos, h.dat.data_wo_with_halos, MPI.REPLACE)
+    sf.reduceEnd(mpi_type, g.dat.data_ro_with_halos, h.dat.data_wo_with_halos, MPI.REPLACE)
+    # h.interpolate(g) # What the above will be
+    # Exclude points which we know are missing - these should all be equal to -1
+    input_ordering_parent_cell_nums = vm.input_ordering.topology_dm.getField("parentcellnum")
+    vm.input_ordering.topology_dm.restoreField("parentcellnum")
+    idxs_to_include = input_ordering_parent_cell_nums != -1
+    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == -1)
+    # Check that the opposite works
+    g.dat.data_wo_with_halos[:] = -1
+    sf.bcastBegin(mpi_type, h.dat.data_ro_with_halos, g.dat.data_wo_with_halos, MPI.REPLACE)
+    sf.bcastEnd(mpi_type, h.dat.data_ro_with_halos, g.dat.data_wo_with_halos, MPI.REPLACE)
+    # g.interpolate(h) # What this will be
+    assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
 
 
 def test_functionspaces(parentmesh, vertexcoords):
