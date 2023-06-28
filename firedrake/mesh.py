@@ -3069,7 +3069,7 @@ def _pic_swarm_in_mesh(
         tolerance,
         redundant,
         exclude_halos,
-        remove_missing_points=True,
+        remove_missing_points=False,
     )
     if not exclude_halos and parent_mesh.comm.size > 1:
         # reorder the points so that the halos are at the end of the array
@@ -3173,14 +3173,10 @@ def _pic_swarm_in_mesh(
     # Note when getting original ordering for extruded meshes we recalculate
     # the base_parent_cell_nums and extrusion_heights - note this could
     # be an SF operation
-    if redundant and parent_mesh.comm.rank != 0:
-        original_ordering_swarm_coords = np.empty(shape=(0, coords.shape[1]))
-    else:
-        original_ordering_swarm_coords = coords
     original_ordering_swarm = _swarm_original_ordering_preserve(
         parent_mesh.comm,
         swarm,
-        original_ordering_swarm_coords,
+        coords_local,  # Don't need to rearrange this - I can just specify coords
         plex_parent_cell_nums,
         global_idxs_local,
         reference_coords_local,
