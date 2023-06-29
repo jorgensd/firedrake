@@ -23,6 +23,9 @@ import firedrake
 from firedrake import tsfc_interface, utils
 from firedrake.adjoint import annotate_interpolate
 from firedrake.petsc import PETSc
+from firedrake.utils import IntType
+from firedrake.halo import _get_mtype as get_dat_mpi_type
+from mpi4py import MPI
 
 __all__ = ("interpolate", "Interpolator")
 
@@ -85,6 +88,35 @@ class Interpolator(object):
 
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None):
+
+        # NOTE: below redoes a bunch of checks which happen in
+        # make_interpolator. I could perhaps try and catch a custom exeception
+        # in the existing code and then check if I'm doing a VOM onto VOM
+        arguments = extract_arguments(expr)
+        if len(arguments) == 0:
+            target_mesh = V.ufl_domain()
+            source_mesh = extract_unique_domain(expr) or target_mesh
+        elif len(arguments) == 1:
+            if isinstance(V, firedrake.Function):
+                raise ValueError(
+                    "Cannot interpolate an expression with an argument into a Function"
+                )
+            argfs = arguments[0].function_space()
+            target_mesh = V.ufl_domain()
+            source_mesh = argfs.mesh()
+        else:
+            raise ValueError(
+                "Cannot interpolate an expression with %d arguments" % len(arguments)
+            )
+        if (
+            target_mesh is not source_mesh
+            and isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+        ):
+            self.vom_onto_vom = True
+        else:
+            self.vom_onto_vom = False
+
         try:
             self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
@@ -162,6 +194,8 @@ def make_interpolator(expr, V, subset, access, bcs=None):
 
     arguments = extract_arguments(expr)
     if len(arguments) == 0:
+        target_mesh = V.ufl_domain()
+        source_mesh = extract_unique_domain(expr) or target_mesh
         if isinstance(V, firedrake.Function):
             f = V
             V = f.function_space()
@@ -223,7 +257,15 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     if len(V) > 1:
         raise NotImplementedError(
             "UFL expressions for mixed functions are not yet supported.")
-    loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
+    if (
+        target_mesh is not source_mesh
+        and isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+        and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+    ):
+        # To interpolate between vertex-only meshes we use a PETSc SF
+        loops.extend([_interpolator_onto_vom_input_ordering(tensor, source_mesh, target_mesh, expr, subset, arguments, access, bcs=bcs)])
+    else:
+        loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
 
     if bcs and len(arguments) == 0:
         loops.extend([partial(bc.apply, f) for bc in bcs])
@@ -645,3 +687,98 @@ def hash_expr(expr):
     domain_numbering = {d: i for i, d in enumerate(ufl.domain.extract_domains(expr))}
     coefficient_numbering = {c: i for i, c in enumerate(extract_coefficients(expr))}
     return compute_expression_signature(expr, {**domain_numbering, **coefficient_numbering})
+
+
+def _interpolator_onto_vom_input_ordering(
+    tensor, source_vom, target_vom, expr, subset, arguments, access, bcs=None
+):
+    if len(arguments):
+        raise NotImplementedError(
+            "Interpolation between vertex-only meshes with arguments is not yet supported - don't know how to deal with a pyop2 mat rather than a dat!"
+        )
+    assert isinstance(tensor, op2.Dat)
+
+    target_dat = tensor
+    source_vom = source_vom
+    reduce = False
+    broadcast = False
+    try:
+        if source_vom.input_ordering is target_vom:
+            reduce = True
+            original_vom = source_vom
+    except AttributeError:
+        pass
+    try:
+        if target_vom.input_ordering is source_vom:
+            broadcast = True
+            original_vom = target_vom
+    except AttributeError:
+        pass
+    if not (reduce or broadcast):
+        raise ValueError(
+            "The target vom and source vom must be linked by input ordering!"
+        )
+
+    # TODO: This is a proof of concept. Really I should store the SF on the
+    # original VOM and use that to send data to the input ordering
+    def callable():
+        # We make an SF which has roorts as the input ordering points and
+        # leaves as the original VOM points
+        # TODO: The SF should be attached to the original VOM and will be used
+        # to send data to the input ordering
+        sf = PETSc.SF().create(comm=original_vom.comm)
+        nroots = original_vom.input_ordering.num_cells()
+        input_ranks = original_vom.topology_dm.getField("inputrank")
+        original_vom.topology_dm.restoreField("inputrank")
+        parent_cell_nums = original_vom.topology_dm.getField("parentcellnum")
+        original_vom.topology_dm.restoreField("parentcellnum")
+        input_index = original_vom.topology_dm.getField("inputindex")
+        original_vom.topology_dm.restoreField("inputindex")
+        # only include leaves where points were successfully embedded in the
+        # original VOM (i.e. where they were given a parent cell number)
+        idxs_to_include = parent_cell_nums != -1
+        input_ranks = input_ranks[idxs_to_include]
+        input_indices = input_index[idxs_to_include]
+        nleaves = len(input_ranks)
+        input_ranks_and_idxs = numpy.empty(2 * nleaves, dtype=IntType)
+        input_ranks_and_idxs[0::2] = input_ranks
+        input_ranks_and_idxs[1::2] = input_indices
+        # local looks like the below, which means we can just pass in None
+        # local = numpy.arange(nleaves, dtype=IntType)
+        sf.setGraph(nroots, None, input_ranks_and_idxs)
+        # Functions on input ordering VOM are roots of the SF
+        # Functions on original VOM are leaves of the SF
+        # Reduce therefore sends data from original VOM to input ordering VOM
+        # NOTE: get_dat_mpi_type ensures we get the correct MPI type for the
+        # data, including the correct data size and dimensional information
+        # (so for vector function spaces in 2 dimensions we might need a
+        # concatenation of 2 MPI.DOUBLE types when we are in real mode)
+        mpi_type, _ = get_dat_mpi_type(target_dat)
+        if reduce:
+            sf.reduceBegin(
+                mpi_type,
+                expr.dat.data_ro_with_halos,
+                target_dat.data_wo_with_halos,
+                MPI.REPLACE,
+            )
+            sf.reduceEnd(
+                mpi_type,
+                expr.dat.data_ro_with_halos,
+                target_dat.data_wo_with_halos,
+                MPI.REPLACE,
+            )
+        elif broadcast:
+            sf.bcastBegin(
+                mpi_type,
+                expr.dat.data_ro_with_halos,
+                target_dat.data_wo_with_halos,
+                MPI.REPLACE,
+            )
+            sf.bcastEnd(
+                mpi_type,
+                expr.dat.data_ro_with_halos,
+                target_dat.data_wo_with_halos,
+                MPI.REPLACE,
+            )
+
+    return callable
