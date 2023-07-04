@@ -1767,23 +1767,15 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         PETSc.IS core_is=None
         PETSc.IS owned_is=None
         PETSc.IS ghost_is=None
-        const PetscInt* core_indices = NULL
-        PetscInt core_index
-        PetscInt ncore_indices = 0
-        const PetscInt* owned_indices = NULL
-        PetscInt owned_index
-        PetscInt nowned_indices = 0
-        const PetscInt* ghost_indices = NULL
-        PetscInt ghost_index
-        PetscInt nghost_indices = 0
+        DMLabel swarm_label_core, swarm_label_owned, swarm_label_ghost
         PetscInt cStart, cEnd
 
     swarm.createLabel("pyop2_core")
     swarm.createLabel("pyop2_owned")
     swarm.createLabel("pyop2_ghost")
-    swarm_label_core = swarm.getLabel("pyop2_core")
-    swarm_label_owned = swarm.getLabel("pyop2_owned")
-    swarm_label_ghost = swarm.getLabel("pyop2_ghost")
+    CHKERR(DMGetLabel(swarm.dm, b"pyop2_core", &swarm_label_core))
+    CHKERR(DMGetLabel(swarm.dm, b"pyop2_owned", &swarm_label_owned))
+    CHKERR(DMGetLabel(swarm.dm, b"pyop2_ghost", &swarm_label_ghost))
 
     plex = swarm.getCellDM()
 
@@ -1819,11 +1811,11 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         # a given field (such as DMSwarmPIC_coor) corresponds
         # to the same point in the swarm.
         if label == 1:
-            swarm_label_core.setValue(plex_cell_idx, 1)
+            CHKERR(DMLabelSetValue(swarm_label_core, plex_cell_idx, 1))
         elif label == 2:
-            swarm_label_owned.setValue(plex_cell_idx, 1)
+            CHKERR(DMLabelSetValue(swarm_label_owned, plex_cell_idx, 1))
         elif label == 3:
-            swarm_label_ghost.setValue(plex_cell_idx, 1)
+            CHKERR(DMLabelSetValue(swarm_label_ghost, plex_cell_idx, 1))
         else:
             raise RuntimeError("Unknown label value")
     return
