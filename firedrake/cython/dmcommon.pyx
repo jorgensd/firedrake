@@ -1784,39 +1784,38 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     core_is = plex.getStratumIS(b"pyop2_core", 1)
     owned_is = plex.getStratumIS(b"pyop2_owned", 1)
     ghost_is = plex.getStratumIS(b"pyop2_ghost", 1)
-    # The index numbers correspond to the numbering of the cell.
+
+    plex_cells = swarm.getField("DMSwarm_cellid")
+    swarm.restoreField("DMSwarm_cellid")
+
     core_idxs = core_is.getIndices()
     owned_idxs = owned_is.getIndices()
     ghost_idxs = ghost_is.getIndices()
 
-    # We only want to know the labels of cells (not facets, vertices, etc.)
     get_height_stratum(plex.dm, 0, &cStart, &cEnd)
     ncells = cEnd - cStart
     core_cell_idxs = core_idxs[np.logical_and(cStart <= core_idxs, core_idxs < cEnd)]
     owned_cell_idxs = owned_idxs[np.logical_and(cStart <= owned_idxs, owned_idxs < cEnd)]
     ghost_cell_idxs = ghost_idxs[np.logical_and(cStart <= ghost_idxs, ghost_idxs < cEnd)]
 
-    # We can now make a list of all cell labels...
     cell_labels = np.zeros(ncells, dtype=np.int8)
     cell_labels[core_cell_idxs] = 1
     cell_labels[owned_cell_idxs] = 2
     cell_labels[ghost_cell_idxs] = 3
-
-    # ...and find out the corresponding label for each point in the swarm.
-    swarm_plex_cells = swarm.getField("DMSwarm_cellid")
-    swarm.restoreField("DMSwarm_cellid")
-    swarm_parent_cell_labels = cell_labels[swarm_plex_cells]
-    assert len(swarm_parent_cell_labels) == len(swarm_plex_cells)
-    for label_idx, label in enumerate(swarm_parent_cell_labels):
-        # We set the label using label index since this index is shared across
-        # all DMSwarm fields: label index n into a given field (such as
-        # DMSwarmPIC_coor) always corresponds to the same point in the swarm.
+    relevant_cell_labels = cell_labels[plex_cells]
+    assert len(relevant_cell_labels) == len(plex_cells)
+    for plex_cell_idx, plex_cell in enumerate(plex_cells):
+        label = relevant_cell_labels[plex_cell_idx]
+        # We set the label using plex_cell_idx since this index
+        # is shared across all DMSwarm fields. So index n into
+        # a given field (such as DMSwarmPIC_coor) corresponds
+        # to the same point in the swarm.
         if label == 1:
-            CHKERR(DMLabelSetValue(swarm_label_core, label_idx, 1))
+            CHKERR(DMLabelSetValue(swarm_label_core, plex_cell_idx, 1))
         elif label == 2:
-            CHKERR(DMLabelSetValue(swarm_label_owned, label_idx, 1))
+            CHKERR(DMLabelSetValue(swarm_label_owned, plex_cell_idx, 1))
         elif label == 3:
-            CHKERR(DMLabelSetValue(swarm_label_ghost, label_idx, 1))
+            CHKERR(DMLabelSetValue(swarm_label_ghost, plex_cell_idx, 1))
         else:
             raise RuntimeError("Unknown label value")
     return
