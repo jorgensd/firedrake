@@ -1768,7 +1768,6 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         PETSc.IS owned_is=None
         PETSc.IS ghost_is=None
         DMLabel swarm_label_core, swarm_label_owned, swarm_label_ghost
-        PetscInt cStart, cEnd
 
     swarm.createLabel("pyop2_core")
     swarm.createLabel("pyop2_owned")
@@ -1789,23 +1788,20 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     owned_idxs = owned_is.getIndices()
     ghost_idxs = ghost_is.getIndices()
 
-    # We only want to know the labels of cells (not facets, vertices, etc.)
-    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
-    ncells = cEnd - cStart
-    core_cell_idxs = core_idxs[np.logical_and(cStart <= core_idxs, core_idxs < cEnd)]
-    owned_cell_idxs = owned_idxs[np.logical_and(cStart <= owned_idxs, owned_idxs < cEnd)]
-    ghost_cell_idxs = ghost_idxs[np.logical_and(cStart <= ghost_idxs, ghost_idxs < cEnd)]
+    # We can now make a list of all labels - this includes all topological
+    # entities: cells, facets, edges, vertices. Each has a unique index.
+    max_idx = max(core_idxs.max(), owned_idxs.max(), ghost_idxs.max())
+    labels = np.zeros(max_idx + 1, dtype=np.int8)
+    labels[core_idxs] = 1
+    labels[owned_idxs] = 2
+    labels[ghost_idxs] = 3
 
-    # We can now make a list of all cell labels...
-    cell_labels = np.zeros(ncells, dtype=np.int8)
-    cell_labels[core_cell_idxs] = 1
-    cell_labels[owned_cell_idxs] = 2
-    cell_labels[ghost_cell_idxs] = 3
-
-    # ...and find out the corresponding label for each point in the swarm.
+    # We know the parent DM cell index for each of our swarm points. We can
+    # therefore filter the list of all labels to find the corresponding label
+    # of each swarm point.
     swarm_plex_cells = swarm.getField("DMSwarm_cellid")
     swarm.restoreField("DMSwarm_cellid")
-    swarm_parent_cell_labels = cell_labels[swarm_plex_cells]
+    swarm_parent_cell_labels = labels[swarm_plex_cells]
     assert len(swarm_parent_cell_labels) == len(swarm_plex_cells)
     for label_idx, label in enumerate(swarm_parent_cell_labels):
         # We set the label using label index since this index is shared across
