@@ -1793,69 +1793,39 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     owned_is = plex.getStratumIS(b"pyop2_owned", 1)
     ghost_is = plex.getStratumIS(b"pyop2_ghost", 1)
 
-    # We will filter by the parent DM cell indices (we don't care about markers
-    # of vertices and facets)...
-    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
-    # ... and look for matches to our saved DMSwarm cell indices.
     plex_cells = swarm.getField("DMSwarm_cellid")
     swarm.restoreField("DMSwarm_cellid")
 
-    if core_is.iset != NULL:
-        CHKERR(ISGetIndices(core_is.iset, &core_indices))
-        CHKERR(ISGetSize(core_is.iset, &ncore_indices))
-    if owned_is.iset != NULL:
-        CHKERR(ISGetIndices(owned_is.iset, &owned_indices))
-        CHKERR(ISGetSize(owned_is.iset, &nowned_indices))
-    if ghost_is.iset != NULL:
-        CHKERR(ISGetIndices(ghost_is.iset, &ghost_indices))
-        CHKERR(ISGetSize(ghost_is.iset, &nghost_indices))
+    core_idxs = core_is.getIndices()
+    owned_idxs = owned_is.getIndices()
+    ghost_idxs = ghost_is.getIndices()
 
+    get_height_stratum(plex.dm, 0, &cStart, &cEnd)
+    ncells = cEnd - cStart
+    core_cell_idxs = core_idxs[np.logical_and(cStart <= core_idxs, core_idxs < cEnd)]
+    owned_cell_idxs = owned_idxs[np.logical_and(cStart <= owned_idxs, owned_idxs < cEnd)]
+    ghost_cell_idxs = ghost_idxs[np.logical_and(cStart <= ghost_idxs, ghost_idxs < cEnd)]
+
+    cell_labels = np.zeros(ncells, dtype=np.int8)
+    cell_labels[core_cell_idxs] = 1
+    cell_labels[owned_cell_idxs] = 2
+    cell_labels[ghost_cell_idxs] = 3
+    relevant_cell_labels = cell_labels[plex_cells]
+    assert len(relevant_cell_labels) == len(plex_cells)
     for plex_cell_idx, plex_cell in enumerate(plex_cells):
-        # search for core first
-        is_core = PETSC_FALSE
-        if core_is.iset != NULL:
-            for i in range(ncore_indices):
-                core_index = core_indices[i]
-                is_cell = cStart <= core_index and core_index < cEnd
-                if is_cell:
-                    is_core = plex_cell == core_index
-                    if is_core:
-                        # We set the label using plex_cell_idx since this index
-                        # is shared across all DMSwarm fields. So index n into
-                        # a given field (such as DMSwarmPIC_coor) corresponds
-                        # to the same point in the swarm.
-                        swarm_label_core.setValue(plex_cell_idx, 1)
-                        break
-        # next search for owned if necessary
-        is_owned = PETSC_FALSE
-        if swarm.comm.size > 1 and owned_is.iset != NULL and not is_core:
-            for i in range(nowned_indices):
-                owned_index = owned_indices[i]
-                is_cell = cStart <= owned_index and owned_index < cEnd
-                if is_cell:
-                    is_owned = plex_cell == owned_index
-                    if is_owned:
-                        swarm_label_owned.setValue(plex_cell_idx, 1)
-                        break
-        # finally search for ghost if necessary
-        is_ghost = PETSC_FALSE
-        if swarm.comm.size > 1 and ghost_is.iset != NULL and not is_core and not is_owned:
-            for i in range(nghost_indices):
-                ghost_index = ghost_indices[i]
-                is_cell = cStart <= ghost_index and ghost_index < cEnd
-                if is_cell:
-                    is_ghost = plex_cell == ghost_index
-                    if is_ghost:
-                        swarm_label_ghost.setValue(plex_cell_idx, 1)
-                        break
-
-    if core_is.iset != NULL:
-        CHKERR(ISRestoreIndices(core_is.iset, &core_indices))
-    if owned_is.iset != NULL:
-        CHKERR(ISRestoreIndices(owned_is.iset, &owned_indices))
-    if ghost_is.iset != NULL:
-        CHKERR(ISRestoreIndices(ghost_is.iset, &ghost_indices))
-
+        label = relevant_cell_labels[plex_cell_idx]
+        # We set the label using plex_cell_idx since this index
+        # is shared across all DMSwarm fields. So index n into
+        # a given field (such as DMSwarmPIC_coor) corresponds
+        # to the same point in the swarm.
+        if label == 1:
+            swarm_label_core.setValue(plex_cell_idx, 1)
+        elif label == 2:
+            swarm_label_owned.setValue(plex_cell_idx, 1)
+        elif label == 3:
+            swarm_label_ghost.setValue(plex_cell_idx, 1)
+        else:
+            raise RuntimeError("Unknown label value")
     return
 
 
