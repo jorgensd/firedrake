@@ -1783,14 +1783,31 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     core_is = plex.getStratumIS(b"pyop2_core", 1)
     owned_is = plex.getStratumIS(b"pyop2_owned", 1)
     ghost_is = plex.getStratumIS(b"pyop2_ghost", 1)
-    # The index numbers correspond to the numbering of the cell.
-    core_idxs = core_is.getIndices()
-    owned_idxs = owned_is.getIndices()
-    ghost_idxs = ghost_is.getIndices()
+    # The index numbers correspond to the numbering of the cell. NOTE: We have
+    # to put null checks here because petsc4py will not return empty indices
+    # when the iset is null, instead it will crash.
+    if core_is.iset == NULL:
+        core_idxs = np.array([], dtype=np.int32)
+        max_core_idx = -1
+    else:
+        core_idxs = core_is.getIndices()
+        max_core_idx = core_idxs.max()
+    if owned_is.iset == NULL:
+        owned_idxs = np.array([], dtype=np.int32)
+        max_owned_idx = -1
+    else:
+        owned_idxs = owned_is.getIndices()
+        max_owned_idx = owned_idxs.max()
+    if ghost_is.iset == NULL:
+        ghost_idxs = np.array([], dtype=np.int32)
+        max_ghost_idx = -1
+    else:
+        ghost_idxs = ghost_is.getIndices()
+        max_ghost_idx = ghost_idxs.max()
 
     # We can now make a list of all labels - this includes all topological
     # entities: cells, facets, edges, vertices. Each has a unique index.
-    max_idx = max(core_idxs.max(), owned_idxs.max(), ghost_idxs.max())
+    max_idx = max(max_core_idx, max_owned_idx, max_ghost_idx)
     labels = np.zeros(max_idx + 1, dtype=np.int8)
     labels[core_idxs] = 1
     labels[owned_idxs] = 2
