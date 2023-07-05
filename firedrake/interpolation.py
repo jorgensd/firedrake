@@ -722,30 +722,7 @@ def _interpolator_onto_vom_input_ordering(
     # TODO: This is a proof of concept. Really I should store the SF on the
     # original VOM and use that to send data to the input ordering
     def callable():
-        # We make an SF which has roorts as the input ordering points and
-        # leaves as the original VOM points
-        # TODO: The SF should be attached to the original VOM and will be used
-        # to send data to the input ordering
-        sf = PETSc.SF().create(comm=original_vom.comm)
-        nroots = original_vom.input_ordering.num_cells()
-        input_ranks = original_vom.topology_dm.getField("inputrank")
-        original_vom.topology_dm.restoreField("inputrank")
-        parent_cell_nums = original_vom.topology_dm.getField("parentcellnum")
-        original_vom.topology_dm.restoreField("parentcellnum")
-        input_index = original_vom.topology_dm.getField("inputindex")
-        original_vom.topology_dm.restoreField("inputindex")
-        # only include leaves where points were successfully embedded in the
-        # original VOM (i.e. where they were given a parent cell number)
-        idxs_to_include = parent_cell_nums != -1
-        input_ranks = input_ranks[idxs_to_include]
-        input_indices = input_index[idxs_to_include]
-        nleaves = len(input_ranks)
-        input_ranks_and_idxs = numpy.empty(2 * nleaves, dtype=IntType)
-        input_ranks_and_idxs[0::2] = input_ranks
-        input_ranks_and_idxs[1::2] = input_indices
-        # local looks like the below, which means we can just pass in None
-        # local = numpy.arange(nleaves, dtype=IntType)
-        sf.setGraph(nroots, None, input_ranks_and_idxs)
+        sf = original_vom.input_ordering_sf
         # Functions on input ordering VOM are roots of the SF
         # Functions on original VOM are leaves of the SF
         # Reduce therefore sends data from original VOM to input ordering VOM
