@@ -3157,7 +3157,7 @@ def _pic_swarm_in_mesh(
     npts_halo = sum(is_halo)
     nroots = npts_owned + npts_halo  # roots should be all points
     nleaves = npts_halo
-    local_halo_idxs = np.where(is_halo)[0].astype(IntType)
+    local_halo_idxs = np.where(is_halo)[0].astype(IntType)  # what we pass as 'local' to the SF
     remote_ranks = owned_ranks_local_visible[local_halo_idxs]
 
     # Remote index is the offset in memory of the point on the other rank.
@@ -3189,10 +3189,7 @@ def _pic_swarm_in_mesh(
     remote_ranks_and_idxs[0::2] = remote_ranks
     remote_ranks_and_idxs[1::2] = remote_idxs
     sf = swarm.getPointSF()
-    # We pass in None instead of local_halo_idxs as 'local', since they are
-    # contiguous in memory now that halos have been moved to the end of our
-    # arrays.
-    sf.setGraph(nroots, None, remote_ranks_and_idxs)
+    sf.setGraph(nroots, local_halo_idxs, remote_ranks_and_idxs)  # Note, could pass None for local_halo_idxs since we know the halo indices are contiguous.
     swarm.setPointSF(sf)
 
     # Note when getting original ordering for extruded meshes we recalculate
