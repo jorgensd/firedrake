@@ -262,7 +262,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
     ):
         # To interpolate between vertex-only meshes we use a PETSc SF
-        loops.extend([_interpolator_onto_vom_input_ordering(tensor, source_mesh, target_mesh, expr, subset, arguments, access, bcs=bcs)])
+        loops.extend([_interpolator_vom_input_ordering(tensor, source_mesh, target_mesh, expr, subset, arguments, access, bcs=bcs)])
     else:
         loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
 
@@ -688,7 +688,7 @@ def hash_expr(expr):
     return compute_expression_signature(expr, {**domain_numbering, **coefficient_numbering})
 
 
-def _interpolator_onto_vom_input_ordering(
+def _interpolator_vom_input_ordering(
     tensor, source_vom, target_vom, expr, subset, arguments, access, bcs=None
 ):
     if len(arguments):
