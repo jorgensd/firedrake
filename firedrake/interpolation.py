@@ -23,7 +23,6 @@ import firedrake
 from firedrake import tsfc_interface, utils
 from firedrake.adjoint import annotate_interpolate
 from firedrake.petsc import PETSc
-from firedrake.utils import IntType
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
 
@@ -719,8 +718,6 @@ def _interpolator_onto_vom_input_ordering(
             "The target vom and source vom must be linked by input ordering!"
         )
 
-    # TODO: This is a proof of concept. Really I should store the SF on the
-    # original VOM and use that to send data to the input ordering
     def callable():
         sf = original_vom.input_ordering_sf
         # Functions on input ordering VOM are roots of the SF
