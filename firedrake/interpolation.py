@@ -215,7 +215,11 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         target_mesh = V.ufl_domain()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
-        if target_mesh is not source_mesh:
+        both_voms = (
+            isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+        )
+        if target_mesh is not source_mesh and not both_voms:
             if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
             if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
