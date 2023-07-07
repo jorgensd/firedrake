@@ -696,6 +696,8 @@ def _interpolator_vom_input_ordering(
             "Interpolation between vertex-only meshes with arguments is not yet supported - don't know how to deal with a pyop2 mat rather than a dat!"
         )
     assert isinstance(tensor, op2.Dat)
+    if not isinstance(expr, ufl.Coefficient):
+        raise NotImplementedError("Only interpolation of Coefficients between vertex-only meshes is currently supported.")
 
     target_dat = tensor
     source_vom = source_vom
