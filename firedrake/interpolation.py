@@ -724,6 +724,40 @@ def _interpolator_vom_input_ordering(
             "The target vom and source vom must be linked by input ordering!"
         )
 
+    # Current behaviour to imitiate:
+    # - v.interpolate(expr),
+    #   interpolate(expr, v),
+    #   Interpolator(expr, v).interpolate(),
+    #   v = interpolate(expr, V) and
+    #   Interpolator(expr, V).interpolate(v)
+    #   - Works with UFL expressions which contain no UFL Arguments. The
+    #     expression can contain functions (UFL Coefficients) from other
+    #     function spaces which will be interpolated into V.
+    #   - Either operates on a function v in V (UFL Coefficient) or outputs a
+    #     function in V.
+    #   - Maths: v = A(expr) where A : W_0 x ... x W_n-1 -> V
+    #   - NOTE: this will seem to work on assembled 1-forms (cofunctions) but
+    #     is mathematical nonsense due to the absence of UFL Cofunctions in
+    #     Firedrake. See
+    #     https://github.com/firedrakeproject/firedrake/issues/3017
+    # - B = Interpolator(expr_1_argument, V)
+    #   - creates the linear interpolation operator B : W -> V where the UFL
+    #     Argument is linear in the expression and is in W.
+    #   - The rest of the expression, including any functions (UFL
+    #     Coefficients), are already interpolated into V and are encorporated
+    #     in the operator.
+    #   - NOTE: Nonlinear Arguments are currently allowed in the expression and
+    #     shouldn't be. See
+    #     https://github.com/firedrakeproject/firedrake/issues/3018
+    # - w = B.interpolate(v)
+    #   - v is a function in V (NOT an expression).
+    #   - w is a function in W.
+    #   - Maths: v = Bw
+    # - v_star = B.interpolate(w_star, transpose = True)
+    #   - w_star us a cofunction in W^* (such as an assembled 1-form).
+    #   - v_star is a cofunction in V^*.
+    #   - Maths: v^* = B^* w^*
+
     def callable():
         sf = original_vom.input_ordering_sf
         # Functions on input ordering VOM are roots of the SF
