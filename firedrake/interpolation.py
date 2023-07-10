@@ -26,6 +26,8 @@ from firedrake.petsc import PETSc
 from firedrake.halo import _get_mtype as get_dat_mpi_type
 from mpi4py import MPI
 
+from pyadjoint import stop_annotating
+
 __all__ = ("interpolate", "Interpolator")
 
 
@@ -266,7 +268,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
     ):
         # To interpolate between vertex-only meshes we use a PETSc SF
-        loops.extend([_interpolator_vom_input_ordering(tensor, source_mesh, target_mesh, expr, subset, arguments, access, bcs=bcs)])
+        loops.extend([_interpolator_vom_input_ordering(V, tensor, source_mesh, target_mesh, expr, subset, arguments, access, bcs=bcs)])
     else:
         loops.extend(_interpolator(V, tensor, expr, subset, arguments, access, bcs=bcs))
 
@@ -693,15 +695,13 @@ def hash_expr(expr):
 
 
 def _interpolator_vom_input_ordering(
-    tensor, source_vom, target_vom, expr, subset, arguments, access, bcs=None
+    V, tensor, source_vom, target_vom, expr, subset, arguments, access, bcs=None
 ):
     if len(arguments):
         raise NotImplementedError(
             "Interpolation between vertex-only meshes with arguments is not yet supported - don't know how to deal with a pyop2 mat rather than a dat!"
         )
     assert isinstance(tensor, op2.Dat)
-    if not isinstance(expr, ufl.Coefficient):
-        raise NotImplementedError("Only interpolation of Coefficients between vertex-only meshes is currently supported.")
 
     target_dat = tensor
     source_vom = source_vom
@@ -759,6 +759,13 @@ def _interpolator_vom_input_ordering(
     #   - Maths: v^* = B^* w^*
 
     def callable():
+        # Since we always output a coefficient when we don't have arguments in
+        # the expression, I should evaluate the expression on the source mesh
+        # so its dat can be sent to the target mesh.
+        with stop_annotating():
+            element = V.ufl_element()  # Could be vector/tensor valued
+            P0DG = firedrake.FunctionSpace(source_vom, element)
+            coeff = firedrake.Function(P0DG).interpolate(expr)
         sf = original_vom.input_ordering_sf
         # Functions on input ordering VOM are roots of the SF
         # Functions on original VOM are leaves of the SF
@@ -771,26 +778,26 @@ def _interpolator_vom_input_ordering(
         if reduce:
             sf.reduceBegin(
                 mpi_type,
-                expr.dat.data_ro_with_halos,
+                coeff.dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
             sf.reduceEnd(
                 mpi_type,
-                expr.dat.data_ro_with_halos,
+                coeff.dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
         elif broadcast:
             sf.bcastBegin(
                 mpi_type,
-                expr.dat.data_ro_with_halos,
+                coeff.dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
             sf.bcastEnd(
                 mpi_type,
-                expr.dat.data_ro_with_halos,
+                coeff.dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
