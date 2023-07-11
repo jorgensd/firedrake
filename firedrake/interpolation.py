@@ -758,15 +758,28 @@ def _interpolator_vom_input_ordering(
     #   - v_star is a cofunction in V^*.
     #   - Maths: v^* = B^* w^*
 
-    def callable():
+    return VomOntoVomCallable(V, expr, target_dat, source_vom, original_vom, reduce, broadcast)
+
+
+class VomOntoVomCallable(object):
+    def __init__(self, V, expr, target_dat, source_vom, original_vom, reduce, broadcast):
+        self.V = V
+        self.expr = expr
+        self.target_dat = target_dat
+        self.source_vom = source_vom
+        self.original_vom = original_vom
+        self.reduce = reduce
+        self.broadcast = broadcast
+
+    def __call__(self):
         # Since we always output a coefficient when we don't have arguments in
         # the expression, I should evaluate the expression on the source mesh
         # so its dat can be sent to the target mesh.
         with stop_annotating():
-            element = V.ufl_element()  # Could be vector/tensor valued
-            P0DG = firedrake.FunctionSpace(source_vom, element)
-            coeff = firedrake.Function(P0DG).interpolate(expr)
-        sf = original_vom.input_ordering_sf
+            element = self.V.ufl_element()  # Could be vector/tensor valued
+            P0DG = firedrake.FunctionSpace(self.source_vom, element)
+            coeff = firedrake.Function(P0DG).interpolate(self.expr)
+        sf = self.original_vom.input_ordering_sf
         # Functions on input ordering VOM are roots of the SF
         # Functions on original VOM are leaves of the SF
         # Reduce therefore sends data from original VOM to input ordering VOM
@@ -774,32 +787,31 @@ def _interpolator_vom_input_ordering(
         # data, including the correct data size and dimensional information
         # (so for vector function spaces in 2 dimensions we might need a
         # concatenation of 2 MPI.DOUBLE types when we are in real mode)
-        mpi_type, _ = get_dat_mpi_type(target_dat)
-        if reduce:
+        mpi_type, _ = get_dat_mpi_type(self.target_dat)
+        if self.reduce:
             sf.reduceBegin(
                 mpi_type,
                 coeff.dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                self.target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
             sf.reduceEnd(
                 mpi_type,
                 coeff.dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                self.target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
-        elif broadcast:
+        elif self.broadcast:
             sf.bcastBegin(
                 mpi_type,
                 coeff.dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                self.target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
             sf.bcastEnd(
                 mpi_type,
                 coeff.dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                self.target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
-
-    return callable
+        return
