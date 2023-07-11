@@ -122,30 +122,37 @@ def functionspace_tests(vm):
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)
     assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-    # Can equivalently create interpolators and use them
+    # Can equivalently create interpolators and use them. NOTE the
+    # transpose interpolator is equivilent to the inverse here because the
+    # inner product matrix in the reisz representer is the identity. TODO: when
+    # we introduce cofunctions, this will need to be rewritten.
+    I_io = Interpolator(TestFunction(V), W)
+    h = I_io.interpolate(g)
+    assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
+    h2 = I2_io.interpolate(g)
+    assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
     with pytest.raises(NotImplementedError):
-        # Arguments not yet supported - need to make a PETSc MATSHELL
-        I_io = Interpolator(TestFunction(V), W)
-        h = I_io.interpolate(g)
-        assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
-        assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-        h2 = I_io.interpolate(2*g*Constant(1, domain=vm))
-        assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
+        # no transpose yet
         g = I_io.interpolate(h, transpose=True)
         assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-        g2 = I_io.interpolate(2*h, transpose=True)
+        g2 = I2_io.interpolate(h, transpose=True)
         assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+
+    I_io_transpose = Interpolator(TestFunction(W), V)
+    I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
     with pytest.raises(NotImplementedError):
-        I_io_transpose = Interpolator(TestFunction(W), V)
+        # no transpose yet
         h = I_io_transpose.interpolate(g, transpose=True)
         assert np.allclose(h.dat.data_ro_with_halos[idxs_to_include], np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
         assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-        h2 = I_io_transpose.interpolate(2*g*Constant(1, domain=vm), transpose=True)
+        h2 = I2_io_transpose.interpolate(g, transpose=True)
         assert np.allclose(h2.dat.data_ro_with_halos[idxs_to_include], 2*np.prod(vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include].reshape(-1, vm.input_ordering.geometric_dimension()), axis=1))
-        g = I_io_transpose.interpolate(h)
-        assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
-        g2 = I_io_transpose.interpolate(2*h)
-        assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+    g = I_io_transpose.interpolate(h)
+    assert np.allclose(g.dat.data_ro_with_halos, np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
+    g2 = I2_io_transpose.interpolate(h)
+    assert np.allclose(g2.dat.data_ro_with_halos, 2*np.prod(vm.coordinates.dat.data_ro_with_halos.reshape(-1, vm.geometric_dimension()), axis=1))
 
 
 def vectorfunctionspace_tests(vm):
@@ -206,30 +213,37 @@ def vectorfunctionspace_tests(vm):
     g.dat.data_wo_with_halos[:] = -1
     g.interpolate(h)
     assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-    # Can equivalently create interpolators and use them
+    # Can equivalently create interpolators and use them. NOTE the
+    # transpose interpolator is equivilent to the inverse here because the
+    # inner product matrix in the reisz representer is the identity. TODO: when
+    # we introduce cofunctions, this will need to be rewritten.
+    I_io = Interpolator(TestFunction(V), W)
+    h = I_io.interpolate(g)
+    assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+    assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
+    I2_io = Interpolator(2*TestFunction(V)*Constant(1, domain=vm), W)
+    h2 = I2_io.interpolate(g)
+    assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
     with pytest.raises(NotImplementedError):
-        # Arguments not yet supported - need to make a PETSc MATSHELL
-        I_io = Interpolator(TestFunction(V), W)
-        h = I_io.interpolate(g)
-        assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-        assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-        h2 = I_io.interpolate(2*g*Constant(1, domain=vm))
-        assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
+        # no transpose yet
         g = I_io.interpolate(h, transpose=True)
         assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-        g2 = I_io.interpolate(2*h, transpose=True)
+        g2 = I2_io.interpolate(h, transpose=True)
         assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
+
+    I_io_transpose = Interpolator(TestFunction(W), V)
+    I2_io_transpose = Interpolator(2*TestFunction(W)*Constant(1, domain=vm.input_ordering), V)
     with pytest.raises(NotImplementedError):
-        I_io_transpose = Interpolator(TestFunction(W), V)
+        # no transpose yet
         h = I_io_transpose.interpolate(g, transpose=True)
         assert np.allclose(h.dat.data_ro[idxs_to_include], 2*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
         assert np.all(h.dat.data_ro_with_halos[~idxs_to_include] == 0)
-        h2 = I_io_transpose.interpolate(2*g*Constant(1, domain=vm), transpose=True)
+        h2 = I2_io_transpose.interpolate(g, transpose=True)
         assert np.allclose(h2.dat.data_ro[idxs_to_include], 4*vm.input_ordering.coordinates.dat.data_ro_with_halos[idxs_to_include])
-        g = I_io_transpose.interpolate(h)
-        assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
-        g2 = I_io_transpose.interpolate(2*h)
-        assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
+    g = I_io_transpose.interpolate(h)
+    assert np.allclose(g.dat.data_ro_with_halos, 2*vm.coordinates.dat.data_ro_with_halos)
+    g2 = I2_io_transpose.interpolate(h)
+    assert np.allclose(g2.dat.data_ro_with_halos, 4*vm.coordinates.dat.data_ro_with_halos)
 
 
 def test_functionspaces(parentmesh, vertexcoords):

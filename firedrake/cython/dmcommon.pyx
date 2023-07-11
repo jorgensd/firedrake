@@ -3275,28 +3275,3 @@ def mark_points_with_function_array(PETSc.DM plex,
         CHKERR(PetscSectionGetOffset(section.sec, p, &offset))
         if array[offset] == 1:
             CHKERR(DMLabelSetValue(<DMLabel>dmlabel.dmlabel, p, label_value))
-
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def make_matshell_from_sf(PETSc.SF sf):
-
-    """Makes a PETSc MatShell from a PETSc SF where SF Broadcast with MPI
-    Replace is matmult and SF reduce with MPI Replace is matmulttranspose.
-
-    Parameters
-    ----------
-    sf : PETSc.SF
-        The PETSc SF to make a MatShell from.
-
-    Returns
-    -------
-    mat : PETSc.Mat
-        The PETSc MatShell.
-
-    Notes
-    -----
-    This is the operator for interpolating from a vertex-only mesh's input
-    ordering to the vertex-only mesh itself.
-    """
-    pass
