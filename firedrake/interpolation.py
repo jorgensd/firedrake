@@ -711,6 +711,40 @@ class VomOntoVomCallable(object):
 
     def __init__(self, V, tensor, source_vom, target_vom, expr, subset, arguments, access, bcs=None):
 
+        # Current behaviour to imitiate:
+        # - v.interpolate(expr),
+        #   interpolate(expr, v),
+        #   Interpolator(expr, v).interpolate(),
+        #   v = interpolate(expr, V) and
+        #   Interpolator(expr, V).interpolate(v)
+        #   - Works with UFL expressions which contain no UFL Arguments. The
+        #     expression can contain functions (UFL Coefficients) from other
+        #     function spaces which will be interpolated into V.
+        #   - Either operates on a function v in V (UFL Coefficient) or outputs a
+        #     function in V.
+        #   - Maths: v = A(expr) where A : W_0 x ... x W_n-1 -> V
+        #   - NOTE: this will seem to work on assembled 1-forms (cofunctions) but
+        #     is mathematical nonsense due to the absence of UFL Cofunctions in
+        #     Firedrake. See
+        #     https://github.com/firedrakeproject/firedrake/issues/3017
+        # - B = Interpolator(expr_1_argument, V)
+        #   - creates the linear interpolation operator B : W -> V where the UFL
+        #     Argument is linear in the expression and is in W.
+        #   - The rest of the expression, including any functions (UFL
+        #     Coefficients), are already interpolated into V and are encorporated
+        #     in the operator.
+        #   - NOTE: Nonlinear Arguments are currently allowed in the expression and
+        #     shouldn't be. See
+        #     https://github.com/firedrakeproject/firedrake/issues/3018
+        # - w = B.interpolate(v)
+        #   - v is a function in V (NOT an expression).
+        #   - w is a function in W.
+        #   - Maths: v = Bw
+        # - v_star = B.interpolate(w_star, transpose = True)
+        #   - w_star us a cofunction in W^* (such as an assembled 1-form).
+        #   - v_star is a cofunction in V^*.
+        #   - Maths: v^* = B^* w^*
+
         self.V = V
         self.tensor = tensor
         self.source_vom = source_vom
@@ -754,73 +788,50 @@ class VomOntoVomOperator(object):
             raise ValueError(
                 "The target vom and source vom must be linked by input ordering!"
             )
-
-        # Current behaviour to imitiate:
-        # - v.interpolate(expr),
-        #   interpolate(expr, v),
-        #   Interpolator(expr, v).interpolate(),
-        #   v = interpolate(expr, V) and
-        #   Interpolator(expr, V).interpolate(v)
-        #   - Works with UFL expressions which contain no UFL Arguments. The
-        #     expression can contain functions (UFL Coefficients) from other
-        #     function spaces which will be interpolated into V.
-        #   - Either operates on a function v in V (UFL Coefficient) or outputs a
-        #     function in V.
-        #   - Maths: v = A(expr) where A : W_0 x ... x W_n-1 -> V
-        #   - NOTE: this will seem to work on assembled 1-forms (cofunctions) but
-        #     is mathematical nonsense due to the absence of UFL Cofunctions in
-        #     Firedrake. See
-        #     https://github.com/firedrakeproject/firedrake/issues/3017
-        # - B = Interpolator(expr_1_argument, V)
-        #   - creates the linear interpolation operator B : W -> V where the UFL
-        #     Argument is linear in the expression and is in W.
-        #   - The rest of the expression, including any functions (UFL
-        #     Coefficients), are already interpolated into V and are encorporated
-        #     in the operator.
-        #   - NOTE: Nonlinear Arguments are currently allowed in the expression and
-        #     shouldn't be. See
-        #     https://github.com/firedrakeproject/firedrake/issues/3018
-        # - w = B.interpolate(v)
-        #   - v is a function in V (NOT an expression).
-        #   - w is a function in W.
-        #   - Maths: v = Bw
-        # - v_star = B.interpolate(w_star, transpose = True)
-        #   - w_star us a cofunction in W^* (such as an assembled 1-form).
-        #   - v_star is a cofunction in V^*.
-        #   - Maths: v^* = B^* w^*
-
         self.arguments = arguments
         self.V = V
         self.source_vom = source_vom
         self.original_vom = original_vom
         self.expr = expr
         self.reduce = reduce
-        self.broadcast = broadcast
 
     def __call__(self, target_dat, transpose=False, source_dat=None):
         if not isinstance(target_dat, op2.Dat):
             raise ValueError("The target dat is not a pyop2 Dat!")
-        if transpose:
-            raise NotImplementedError("Transpose not yet implemented!")
 
         # Since we always output a coefficient when we don't have arguments in
         # the expression, I should evaluate the expression on the source mesh
         # so its dat can be sent to the target mesh.
-        with stop_annotating():
-            element = self.V.ufl_element()  # Could be vector/tensor valued
-            P0DG = firedrake.FunctionSpace(self.source_vom, element)
-            # if we have any arguments in the expression we need to replace
-            # them with equivalent coefficients now
-            if len(self.arguments):
-                if len(self.arguments) > 1:
-                    raise NotImplementedError("Can only interpolate expressions with one argument!")
-                if source_dat is None:
-                    raise ValueError("Need to provide a source dat for the argument!")
-                arg = self.arguments[0]
-                arg_coeff = firedrake.Function(arg.function_space())
-                arg_coeff.dat.data_wo_with_halos[:] = source_dat.data_ro_with_halos[:]
-                self.expr = ufl.replace(self.expr, {arg: arg_coeff})
-            coeff = firedrake.Function(P0DG).interpolate(self.expr)
+        if not transpose:
+            with stop_annotating():
+                element = self.V.ufl_element()  # Could be vector/tensor valued
+                P0DG = firedrake.FunctionSpace(self.source_vom, element)
+                # if we have any arguments in the expression we need to replace
+                # them with equivalent coefficients now
+                coeff_expr = self.expr
+                if len(self.arguments):
+                    if len(self.arguments) > 1:
+                        raise NotImplementedError("Can only interpolate expressions with one argument!")
+                    if source_dat is None:
+                        raise ValueError("Need to provide a source dat for the argument!")
+                    arg = self.arguments[0]
+                    arg_coeff = firedrake.Function(arg.function_space())
+                    arg_coeff.dat.data_wo_with_halos[:] = source_dat.data_ro_with_halos[:]
+                    coeff_expr = ufl.replace(self.expr, {arg: arg_coeff})
+                coeff = firedrake.Function(P0DG).interpolate(coeff_expr)
+                coeff_dat = coeff.dat
+                reduce = self.reduce
+        else:
+            # can only do transpose if our expression exclusively contains a
+            # single argument, making the application of the adjoint operator
+            # straightforward (haven't worked out how to do this otherwise!)
+            if not len(self.arguments) == 1:
+                raise NotImplementedError("Can only apply transpose to expressions with one argument!")
+            if self.arguments[0] is not self.expr:
+                raise NotImplementedError("Can only apply transpose to expressions consisting of a single argument at the moment.")
+            coeff_dat = source_dat
+            reduce = not self.reduce
+
         sf = self.original_vom.input_ordering_sf
         # Functions on input ordering VOM are roots of the SF
         # Functions on original VOM are leaves of the SF
@@ -830,29 +841,29 @@ class VomOntoVomOperator(object):
         # (so for vector function spaces in 2 dimensions we might need a
         # concatenation of 2 MPI.DOUBLE types when we are in real mode)
         mpi_type, _ = get_dat_mpi_type(target_dat)
-        if self.reduce:
+        if reduce:
             sf.reduceBegin(
                 mpi_type,
-                coeff.dat.data_ro_with_halos,
+                coeff_dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
             sf.reduceEnd(
                 mpi_type,
-                coeff.dat.data_ro_with_halos,
+                coeff_dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
-        elif self.broadcast:
+        else:  # broadcast
             sf.bcastBegin(
                 mpi_type,
-                coeff.dat.data_ro_with_halos,
+                coeff_dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
             sf.bcastEnd(
                 mpi_type,
-                coeff.dat.data_ro_with_halos,
+                coeff_dat.data_ro_with_halos,
                 target_dat.data_wo_with_halos,
                 MPI.REPLACE,
             )
