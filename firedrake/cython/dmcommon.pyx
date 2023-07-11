@@ -1768,6 +1768,10 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
         PETSc.IS owned_is=None
         PETSc.IS ghost_is=None
         DMLabel swarm_label_core, swarm_label_owned, swarm_label_ghost
+        PetscInt label_idx, label
+        np.ndarray[PetscInt, ndim=1, mode="c"] swarm_plex_cells
+        np.ndarray[PetscInt, ndim=1, mode="c"] swarm_parent_cell_labels
+
 
     swarm.createLabel("pyop2_core")
     swarm.createLabel("pyop2_owned")
@@ -1787,19 +1791,19 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     # to put null checks here because petsc4py will not return empty indices
     # when the iset is null, instead it will crash.
     if core_is.iset == NULL:
-        core_idxs = np.array([], dtype=np.int32)
+        core_idxs = np.array([], dtype=IntType)
         max_core_idx = -1
     else:
         core_idxs = core_is.getIndices()
         max_core_idx = core_idxs.max()
     if owned_is.iset == NULL:
-        owned_idxs = np.array([], dtype=np.int32)
+        owned_idxs = np.array([], dtype=IntType)
         max_owned_idx = -1
     else:
         owned_idxs = owned_is.getIndices()
         max_owned_idx = owned_idxs.max()
     if ghost_is.iset == NULL:
-        ghost_idxs = np.array([], dtype=np.int32)
+        ghost_idxs = np.array([], dtype=IntType)
         max_ghost_idx = -1
     else:
         ghost_idxs = ghost_is.getIndices()
@@ -1808,7 +1812,7 @@ def mark_entity_classes_using_cell_dm(PETSc.DM swarm):
     # We can now make a list of all labels - this includes all topological
     # entities: cells, facets, edges, vertices. Each has a unique index.
     max_idx = max(max_core_idx, max_owned_idx, max_ghost_idx)
-    labels = np.zeros(max_idx + 1, dtype=np.int8)
+    labels = np.zeros(max_idx + 1, dtype=IntType)
     labels[core_idxs] = 1
     labels[owned_idxs] = 2
     labels[ghost_idxs] = 3
