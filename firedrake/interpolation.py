@@ -90,33 +90,8 @@ class Interpolator(object):
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None):
 
-        # NOTE: below redoes a bunch of checks which happen in
-        # make_interpolator. I could perhaps try and catch a custom exeception
-        # in the existing code and then check if I'm doing a VOM onto VOM
-        arguments = extract_arguments(expr)
-        if len(arguments) == 0:
-            target_mesh = V.ufl_domain()
-            source_mesh = extract_unique_domain(expr) or target_mesh
-        elif len(arguments) == 1:
-            if isinstance(V, firedrake.Function):
-                raise ValueError(
-                    "Cannot interpolate an expression with an argument into a Function"
-                )
-            argfs = arguments[0].function_space()
-            target_mesh = V.ufl_domain()
-            source_mesh = argfs.mesh()
-        else:
-            raise ValueError(
-                "Cannot interpolate an expression with %d arguments" % len(arguments)
-            )
-        self.vom_onto_vom = (
-            target_mesh is not source_mesh
-            and isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
-            and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
-        )
-
         try:
-            self.callable, arguments = make_interpolator(expr, V, subset, access, bcs=bcs)
+            self.callable, arguments, self.vom_onto_other_vom = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
             raise NotImplementedError("Can't interpolate onto traces sorry")
         self.arguments = arguments
@@ -162,7 +137,7 @@ class Interpolator(object):
             function, = function
             if not hasattr(function, "dat"):
                 raise ValueError("The expression had arguments: we therefore need to be given a function (not an expression) to interpolate!")
-            if not self.vom_onto_vom:
+            if not self.vom_onto_other_vom:
                 if transpose:
                     mul = assembled_interpolator.handle.multTranspose
                     V = self.arguments[0].function_space()
@@ -202,9 +177,14 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     arguments = extract_arguments(expr)
+    target_mesh = V.ufl_domain()
     if len(arguments) == 0:
-        target_mesh = V.ufl_domain()
         source_mesh = extract_unique_domain(expr) or target_mesh
+        vom_onto_other_vom = (
+            isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and target_mesh is not source_mesh
+        )
         if isinstance(V, firedrake.Function):
             f = V
             V = f.function_space()
@@ -222,14 +202,14 @@ def make_interpolator(expr, V, subset, access, bcs=None):
         if isinstance(V, firedrake.Function):
             raise ValueError("Cannot interpolate an expression with an argument into a Function")
         argfs = arguments[0].function_space()
-        target_mesh = V.ufl_domain()
         source_mesh = argfs.mesh()
         argfs_map = argfs.cell_node_map()
-        both_voms = (
+        vom_onto_other_vom = (
             isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
             and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
+            and target_mesh is not source_mesh
         )
-        if target_mesh is not source_mesh and not both_voms:
+        if target_mesh is not source_mesh and not vom_onto_other_vom:
             if not isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology):
                 raise NotImplementedError("Can only interpolate onto a Vertex Only Mesh")
             if target_mesh.geometric_dimension() != source_mesh.geometric_dimension():
@@ -248,8 +228,8 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                     argfs_map = vom_cell_parent_node_map_extruded(target_mesh, argfs_map)
                 else:
                     argfs_map = compose_map_and_cache(target_mesh.cell_parent_cell_map, argfs_map)
-        if both_voms:
-            # We use the SF to interpolate between vertex-only meshes
+        if vom_onto_other_vom:
+            # We make our own linear operator for this case using PETSc SFs
             tensor = None
         else:
             sparsity = op2.Sparsity((V.dof_dset, argfs.dof_dset),
@@ -262,14 +242,10 @@ def make_interpolator(expr, V, subset, access, bcs=None):
     else:
         raise ValueError("Cannot interpolate an expression with %d arguments" % len(arguments))
 
-    if (
-        target_mesh is not source_mesh
-        and isinstance(target_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
-        and isinstance(source_mesh.topology, firedrake.mesh.VertexOnlyMeshTopology)
-    ):
+    if vom_onto_other_vom:
         # To interpolate between vertex-only meshes we use a PETSc SF
         callable = VomOntoVomCallable(V, tensor, source_mesh, target_mesh, expr, subset, arguments, access, bcs=bcs)
-        return callable, arguments
+        return callable, arguments, vom_onto_other_vom
     else:
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
@@ -293,7 +269,7 @@ def make_interpolator(expr, V, subset, access, bcs=None):
                 l()
             return f
 
-        return partial(callable, loops, f), arguments
+        return partial(callable, loops, f), arguments, vom_onto_other_vom
 
 
 @utils.known_pyop2_safe
