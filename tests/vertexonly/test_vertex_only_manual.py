@@ -23,7 +23,7 @@ def test_vertex_only_mesh_manual_example():
     # Interpolation performs point evaluation
     f_at_points = interpolate(f, P0DG)
 
-    print(f_at_points.dat.data)
+    print(f_at_points.dat.data_ro)
 
 
 def test_vom_manual_points_outside_domain():

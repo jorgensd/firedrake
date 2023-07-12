@@ -92,13 +92,18 @@ moved.
 Evaluation with a distributed mesh
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-There is limited support for point evaluation when running Firedrake
+There is limited support for :meth:`~.Function.at` when running Firedrake
 in parallel. There is no special API, but there are some restrictions:
 
 * Point evaluation is a *collective* operation.
 * Each process must ask for the same list of points.
 * Each process will get the same values.
 
+If ``RuntimeError: Point evaluation gave different results across processes.``
+is raised, try lowering the :ref:`mesh tolerance <tolerance>`.
+
+
+.. _primary-api:
 
 Primary API: Interpolation onto a vertex-only mesh
 --------------------------------------------------
@@ -128,8 +133,10 @@ evaluation of a function :math:`f` defined in a function space
    :dedent:
    :lines: 7-26
 
-will print ``[0.02, 0.08, 0.18]``, the values of :math:`x^2 + y^2` at the
-points :math:`(0.1, 0.1)`, :math:`(0.2, 0.2)` and :math:`(0.3, 0.3)`.
+will print ``[0.02, 0.08, 0.18]`` when running in serial, the values of
+:math:`x^2 + y^2` at the points :math:`(0.1, 0.1)`, :math:`(0.2, 0.2)` and
+:math:`(0.3, 0.3)`. For details on viewing the outputs in parallel, see the
+:ref:`section on the input ordering property. <input_ordering>`
 
 Note that ``f_at_points`` is a :py:class:`~.Function` which takes
 on *all* the values of ``f`` evaluated at ``points``. The cell ordering of a
@@ -248,29 +255,101 @@ Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
    :dedent:
    :lines: 50-64
 
+.. _external:
+
 Interacting with external point data
 ------------------------------------
 
-.. warning::
+.. _input_ordering:
 
-   The examples given in the following section use an internal Firedrake API
-   ``Function.dat.data`` which could change in the future.
-
-.. warning::
-
-   The examples given in the following section will not work in parallel. A
-   parallel safe way of interacting with external data will be available soon.
+Using the input ordering property
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Any set of points with associated data in our domain can be expressed as a
-P0DG function on a :func:`~.VertexOnlyMesh`.
+P0DG function on a :func:`~.VertexOnlyMesh`. The recommended way to import data
+from an external source is via the :py:attr:`~.MeshGeometry.input_ordering`
+method: this produces another vertex-only mesh which has points in the order
+and MPI rank that they were specified when first creating the original
+vertex-only mesh. For example:
 
 .. code-block:: python3
 
-   vom = VertexOnlyMesh(parent_mesh, point_locations_from_elsewhere)
+   # We have a set of points with corresponding data from elsewhere
+   vom = VertexOnlyMesh(parent_mesh, point_locations_from_elsewhere, redundant = False)
    P0DG = FunctionSpace(vom, "DG", 0)
-   y_pts = Function(P0DG).dat.data[:] = point_data_values_from_elsewhere
+   point_data = Function(P0DG)  # how do we get the data in here?
 
-We can use :func:`~.interpolate` to interact with this data to, for example,
+   # Create a P0DG function on the input ordering vertex-only mesh
+   P0DG_input_ordering = FunctionSpace(vom.input_ordering, "DG", 0)
+   point_data_input_ordering = Function(P0DG_input_ordering)
+
+   # We can safely set the values of this function, knowing that the data will
+   # be in the same order and on the same MPI rank as point_locations_from_elsewhere
+   point_data_input_ordering.dat.data_wo[:] = point_data_values_from_elsewhere
+
+   # Interpolate puts this data onto the original vertex-only mesh
+   point_data.interpolate(point_data_input_ordering)
+
+This is entirely parallel safe.
+
+Similarly, we can use :py:attr:`~.MeshGeometry.input_ordering` to get data out
+of a vertex-only mesh in a parallel-safe way. If we return to our example from
+:ref:`the section where we introduced vertex only meshes <primary-api>`, we
+had
+
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 24-26
+
+In parallel, this will print the values of ``f`` at the given ``points`` list
+**after the points have been distributed over the parent mesh**. If we want the
+values of ``f`` at the ``points`` list **before the points have been
+distributed** we can use :py:attr:`~.MeshGeometry.input_ordering` as follows:
+
+.. code-block:: python3
+
+   # Make a P0DG function on the input ordering vertex-only mesh again
+   P0DG_input_ordering = FunctionSpace(vom.input_ordering, "DG", 0)
+   f_at_input_points = Function(P0DG_input_ordering)
+
+   # We interpolate the other way this time
+   f_at_input_points.interpolate(f_at_points)
+
+   print(f_at_input_points.dat.data_ro)  # will print the values at the input points
+
+.. note::
+
+   When a a vertex-only mesh is created with ``redundant = True`` (which is the
+   default when creating a :func:`~.VertexOnlyMesh`) the
+   :py:attr:`~.MeshGeometry.input_ordering` method will return a vertex-only
+   mesh with all points on rank 0.
+
+If we ran the example in parallel, the above code would print
+``[0.02, 0.08, 0.18]`` on rank 0 and ``[]`` on all other ranks. If we set
+``redundant = False`` when creating the vertex-only mesh, the above code would
+print ``[0.02, 0.08, 0.18]`` on all ranks and we would have point duplication.
+
+If any of the specified points were not found in the mesh, the value on the
+input ordering vertex-only mesh will not be effected by the interpolation from
+the original vertex-only mesh. In the above example, the values would be zero
+at those points. To make it more obvious that those points were not found, it's
+a good idea to set the values to ``nan`` before the interpolation:
+
+.. code-block:: python3
+
+   import numpy as np
+   f_at_input_points.dat.data_wo[:] = np.nan
+   f_at_input_points.interpolate(f_at_points)
+
+   print(f_at_input_points.dat.data_ro)  # any points not found will be nan
+
+
+More ways to interact with external data
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Aside from :py:attr:`~.MeshGeometry.input_ordering`, we can use
+:func:`~.interpolate` to interact with external data to, for example,
 compare a PDE solution with the point data. The :math:`l_2` error norm
 (euclidean norm) of a function :math:`f` (which may be a PDE solution)
 evaluated against a set of point data :math:`\{y_i\}_{i=0}^{N-1}` at points
@@ -288,6 +367,10 @@ We can express this in Firedrake as
 
    # or equivalently
    error = errornorm(interpolate(f, P0DG), y_pts)
+
+We can then use the :py:attr:`~.MeshGeometry.input_ordering` vertex-only mesh
+to safely check the values of ``error`` at the points
+:math:`\{x_i\}_{i=0}^{N-1}`.
 
 .. _tolerance:
 
@@ -326,8 +409,8 @@ dictates the point loss behaviour close to cell edges. So the mesh
 :math:`(1.1, 1.0)` by default.
 
 Changing mesh tolerance only affects point location after it has been changed.
-To apply the new tolerance to a vertex-only mesh, a new vertex-only mesh must 
-be created. Any existing immersed vertex-only mesh will have been created 
+To apply the new tolerance to a vertex-only mesh, a new vertex-only mesh must
+be created. Any existing immersed vertex-only mesh will have been created
 using the previous tolerance and will be unaffected by the change.
 
 
