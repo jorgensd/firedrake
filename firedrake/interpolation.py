@@ -31,6 +31,41 @@ from pyadjoint import stop_annotating
 __all__ = ("interpolate", "Interpolator")
 
 
+# Current behaviour of interpolation in Firedrake:
+# - v.interpolate(expr),
+#   interpolate(expr, v),
+#   Interpolator(expr, v).interpolate(),
+#   v = interpolate(expr, V) and
+#   Interpolator(expr, V).interpolate(v)
+#   - Works with UFL expressions which contain no UFL Arguments. The
+#     expression can contain functions (UFL Coefficients) from other
+#     function spaces which will be interpolated into V.
+#   - Either operates on a function v in V (UFL Coefficient) or outputs a
+#     function in V.
+#   - Maths: v = A(expr) where A : W_0 x ... x W_n-1 -> V
+#   - NOTE: this will seem to work on assembled 1-forms (cofunctions) but
+#     is mathematical nonsense due to the absence of UFL Cofunctions in
+#     Firedrake. See
+#     https://github.com/firedrakeproject/firedrake/issues/3017
+# - B = Interpolator(expr_1_argument, V)
+#   - creates the linear interpolation operator B : W -> V where the UFL
+#     Argument is linear in the expression and is in W.
+#   - The rest of the expression, including any functions (UFL
+#     Coefficients), are already interpolated into V and are encorporated
+#     in the operator.
+#   - NOTE: Nonlinear Arguments are currently allowed in the expression and
+#     shouldn't be. See
+#     https://github.com/firedrakeproject/firedrake/issues/3018
+# - w = B.interpolate(v)
+#   - v is a function in V (NOT an expression).
+#   - w is a function in W.
+#   - Maths: v = Bw
+# - v_star = B.interpolate(w_star, transpose = True)
+#   - w_star us a cofunction in W^* (such as an assembled 1-form).
+#   - v_star is a cofunction in V^*.
+#   - Maths: v^* = B^* w^*
+
+
 @PETSc.Log.EventDecorator()
 def interpolate(expr, V, subset=None, access=op2.WRITE, ad_block_tag=None):
     """Interpolate an expression onto a new function in V.
@@ -89,7 +124,6 @@ class Interpolator(object):
 
     """
     def __init__(self, expr, V, subset=None, freeze_expr=False, access=op2.WRITE, bcs=None):
-
         try:
             self.callable, arguments, self.vom_onto_other_vom = make_interpolator(expr, V, subset, access, bcs=bcs)
         except FIAT.hdiv_trace.TraceError:
@@ -154,7 +188,7 @@ class Interpolator(object):
                 else:
                     V = self.V
                 result = output or firedrake.Function(V)
-                assembled_interpolator(result.dat, transpose, function.dat)
+                assembled_interpolator(result.dat, function.dat, transpose)
                 return result
 
         else:
@@ -244,7 +278,19 @@ def make_interpolator(expr, V, subset, access, bcs=None):
 
     if vom_onto_other_vom:
         # To interpolate between vertex-only meshes we use a PETSc SF
-        callable = VomOntoVomCallable(V, tensor, source_mesh, target_mesh, expr, subset, arguments, access, bcs=bcs)
+        if tensor is not None:
+            assert not len(arguments)
+            # Do interpolation into tensor (which is a Dat) now.
+            callable = partial(VomOntoVomCallable(V, source_mesh, target_mesh, expr, arguments), tensor)
+        else:
+            assert len(arguments) == 1
+            # Leave operator as a callable that takes source and target dats.
+
+            def callable():
+                # need to wrap this in a callable to work as expected with
+                # Interpolator.interpolate()
+                return VomOntoVomCallable(V, source_mesh, target_mesh, expr, arguments)
+
         return callable, arguments, vom_onto_other_vom
     else:
         # Make sure we have an expression of the right length i.e. a value for
@@ -684,100 +730,27 @@ def hash_expr(expr):
 
 
 class VomOntoVomCallable(object):
-    """Callable that maps from one VertexOnlyMesh to it's intput ordering
-    VertexOnlyMesh, or vice versa.
-
-    Only intended for use with the :class:`Interpolator` class, where it has
-    a similar role to the :func:`_interpolator` function, which also produces
-    a callable.
+    """Callable that maps from one ``VertexOnlyMesh`` to it's intput ordering
+    ``VertexOnlyMesh``, or vice versa.
 
     Parameters
     ----------
     V : :class:`.FunctionSpace`
-
-    See :class:`VomOntoVomOperator` for parameter descriptions.
-
-    Returns
-    -------
-    callable
-        A callable for interpolation. This either accepts no arguments, and
-        does the interpolation (with the output being placed in the ``tensor``
-        argument) or is a callable that accepts a :class:`pyop2.Dat` argument,
-        with the output being placed in that.
+        The P0DG function space (which may be vector or tensor valued) on the
+        source ``VertexOnlyMesh``.
+    source_vom : :class:`.VertexOnlyMesh`
+        The ``VertexOnlyMesh`` we interpolate from.
+    target_vom : :class:`.VertexOnlyMesh`
+        The ``VertexOnlyMesh`` we interpolate to.
+    expr : :class:`ufl.Expr`
+        The expression to interpolate. If ``arguments`` is not empty, those
+        arguments must be present within it.
+    arguments : list of :class:`ufl.Argument`
+        The arguments in the expression. These are not extracted from expr here
+        since, where we use this, we already have them.
     """
-    def __init__(
-        self,
-        V,
-        target_dat,
-        source_vom,
-        target_vom,
-        expr,
-        subset,
-        arguments,
-        access,
-        bcs=None,
-    ):
-        # Current behaviour to imitiate:
-        # - v.interpolate(expr),
-        #   interpolate(expr, v),
-        #   Interpolator(expr, v).interpolate(),
-        #   v = interpolate(expr, V) and
-        #   Interpolator(expr, V).interpolate(v)
-        #   - Works with UFL expressions which contain no UFL Arguments. The
-        #     expression can contain functions (UFL Coefficients) from other
-        #     function spaces which will be interpolated into V.
-        #   - Either operates on a function v in V (UFL Coefficient) or outputs a
-        #     function in V.
-        #   - Maths: v = A(expr) where A : W_0 x ... x W_n-1 -> V
-        #   - NOTE: this will seem to work on assembled 1-forms (cofunctions) but
-        #     is mathematical nonsense due to the absence of UFL Cofunctions in
-        #     Firedrake. See
-        #     https://github.com/firedrakeproject/firedrake/issues/3017
-        # - B = Interpolator(expr_1_argument, V)
-        #   - creates the linear interpolation operator B : W -> V where the UFL
-        #     Argument is linear in the expression and is in W.
-        #   - The rest of the expression, including any functions (UFL
-        #     Coefficients), are already interpolated into V and are encorporated
-        #     in the operator.
-        #   - NOTE: Nonlinear Arguments are currently allowed in the expression and
-        #     shouldn't be. See
-        #     https://github.com/firedrakeproject/firedrake/issues/3018
-        # - w = B.interpolate(v)
-        #   - v is a function in V (NOT an expression).
-        #   - w is a function in W.
-        #   - Maths: v = Bw
-        # - v_star = B.interpolate(w_star, transpose = True)
-        #   - w_star us a cofunction in W^* (such as an assembled 1-form).
-        #   - v_star is a cofunction in V^*.
-        #   - Maths: v^* = B^* w^*
 
-        self.V = V
-        self.target_dat = target_dat
-        self.source_vom = source_vom
-        self.target_vom = target_vom
-        self.expr = expr
-        self.subset = subset
-        self.arguments = arguments
-        self.access = access
-        self.bcs = bcs
-        self.operator = VomOntoVomOperator(
-            V, source_vom, target_vom, expr, subset, arguments, access, bcs
-        )
-
-    def __call__(self):
-        if len(self.arguments):
-            # Give the operator so the interpolation can be done later
-            return self.operator
-        else:
-            # Do the SF reduction/broadcast now
-            self.operator(self.target_dat, transpose=False)
-        return
-
-
-class VomOntoVomOperator(object):
-    def __init__(
-        self, V, source_vom, target_vom, expr, subset, arguments, access, bcs=None
-    ):
+    def __init__(self, V, source_vom, target_vom, expr, arguments):
         source_vom = source_vom
         reduce = False
         broadcast = False
@@ -804,9 +777,35 @@ class VomOntoVomOperator(object):
         self.expr = expr
         self.reduce = reduce
 
-    def __call__(self, target_dat, transpose=False, source_dat=None):
+    def __call__(self, target_dat, source_dat=None, transpose=False):
+        """
+        Perform the interpolation.
+
+        Parameters
+        ----------
+        target_dat : :class:`pyop2.Dat`
+            The target dat to interpolate into.
+        source_dat : :class:`pyop2.Dat`, optional
+            The source dat to interpolate from if the expression contained
+            an argument. Set to ``None`` if the expression contained no
+            arguments.
+        transpose : bool
+            If ``True``, the adjoint interpolation operator is applied. The
+            expression must contain an argument and the source dat must
+            correspond to a cofunction.
+
+        Returns
+        -------
+        None
+        """
         if not isinstance(target_dat, op2.Dat):
             raise ValueError("The target dat is not a pyop2 Dat!")
+        if source_dat is not None and not isinstance(source_dat, op2.Dat):
+            raise ValueError("If the source dat is specified, it must be a pyop2 Dat!")
+        if transpose and source_dat is None:
+            raise ValueError(
+                "If the transpose is True, the source dat must be specified!"
+            )
 
         # Since we always output a coefficient when we don't have arguments in
         # the expression, I should evaluate the expression on the source mesh
