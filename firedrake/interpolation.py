@@ -160,8 +160,8 @@ class Interpolator(object):
 
         if self.nargs:
             function, = function
-            if not isinstance(function, ufl.Coefficient):
-                raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
+            if not hasattr(function, "dat"):
+                raise ValueError("The expression had arguments: we therefore need to be given a function (not an expression) to interpolate!")
             if not self.vom_onto_vom:
                 if transpose:
                     mul = assembled_interpolator.handle.multTranspose
