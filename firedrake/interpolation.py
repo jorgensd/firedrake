@@ -684,9 +684,39 @@ def hash_expr(expr):
 
 
 class VomOntoVomCallable(object):
+    """Callable that maps from one VertexOnlyMesh to it's intput ordering
+    VertexOnlyMesh, or vice versa.
 
-    def __init__(self, V, tensor, source_vom, target_vom, expr, subset, arguments, access, bcs=None):
+    Only intended for use with the :class:`Interpolator` class, where it has
+    a similar role to the :func:`_interpolator` function, which also produces
+    a callable.
 
+    Parameters
+    ----------
+    V : :class:`.FunctionSpace`
+
+    See :class:`VomOntoVomOperator` for parameter descriptions.
+
+    Returns
+    -------
+    callable
+        A callable for interpolation. This either accepts no arguments, and
+        does the interpolation (with the output being placed in the ``tensor``
+        argument) or is a callable that accepts a :class:`pyop2.Dat` argument,
+        with the output being placed in that.
+    """
+    def __init__(
+        self,
+        V,
+        target_dat,
+        source_vom,
+        target_vom,
+        expr,
+        subset,
+        arguments,
+        access,
+        bcs=None,
+    ):
         # Current behaviour to imitiate:
         # - v.interpolate(expr),
         #   interpolate(expr, v),
@@ -722,7 +752,7 @@ class VomOntoVomCallable(object):
         #   - Maths: v^* = B^* w^*
 
         self.V = V
-        self.tensor = tensor
+        self.target_dat = target_dat
         self.source_vom = source_vom
         self.target_vom = target_vom
         self.expr = expr
@@ -730,21 +760,24 @@ class VomOntoVomCallable(object):
         self.arguments = arguments
         self.access = access
         self.bcs = bcs
-        self.operator = VomOntoVomOperator(V, source_vom, target_vom, expr, subset, arguments, access, bcs)
+        self.operator = VomOntoVomOperator(
+            V, source_vom, target_vom, expr, subset, arguments, access, bcs
+        )
 
     def __call__(self):
         if len(self.arguments):
+            # Give the operator so the interpolation can be done later
             return self.operator
         else:
             # Do the SF reduction/broadcast now
-            self.operator(self.tensor, transpose=False)
+            self.operator(self.target_dat, transpose=False)
         return
 
 
 class VomOntoVomOperator(object):
-
-    def __init__(self, V, source_vom, target_vom, expr, subset, arguments, access, bcs=None):
-
+    def __init__(
+        self, V, source_vom, target_vom, expr, subset, arguments, access, bcs=None
+    ):
         source_vom = source_vom
         reduce = False
         broadcast = False
@@ -787,12 +820,16 @@ class VomOntoVomOperator(object):
                 coeff_expr = self.expr
                 if len(self.arguments):
                     if len(self.arguments) > 1:
-                        raise NotImplementedError("Can only interpolate expressions with one argument!")
+                        raise NotImplementedError(
+                            "Can only interpolate expressions with one argument!"
+                        )
                     if source_dat is None:
-                        raise ValueError("Need to provide a source dat for the argument!")
+                        raise ValueError(
+                            "Need to provide a source dat for the argument!"
+                        )
                     arg = self.arguments[0]
                     arg_coeff = firedrake.Function(arg.function_space())
-                    arg_coeff.dat.data_wo_with_halos[:] = source_dat.data_ro_with_halos[:]
+                    arg_coeff.dat.data_wo_with_halos[:] = source_dat.data_ro_with_halos
                     coeff_expr = ufl.replace(self.expr, {arg: arg_coeff})
                 coeff = firedrake.Function(P0DG).interpolate(coeff_expr)
                 coeff_dat = coeff.dat
@@ -802,9 +839,13 @@ class VomOntoVomOperator(object):
             # single argument, making the application of the adjoint operator
             # straightforward (haven't worked out how to do this otherwise!)
             if not len(self.arguments) == 1:
-                raise NotImplementedError("Can only apply transpose to expressions with one argument!")
+                raise NotImplementedError(
+                    "Can only apply transpose to expressions with one argument!"
+                )
             if self.arguments[0] is not self.expr:
-                raise NotImplementedError("Can only apply transpose to expressions consisting of a single argument at the moment.")
+                raise NotImplementedError(
+                    "Can only apply transpose to expressions consisting of a single argument at the moment."
+                )
             coeff_dat = source_dat
             reduce = not self.reduce
 
