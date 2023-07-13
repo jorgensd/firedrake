@@ -131,7 +131,7 @@ evaluation of a function :math:`f` defined in a function space
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 7-26
+   :lines: 9-28
 
 will print ``[0.02, 0.08, 0.18]`` when running in serial, the values of
 :math:`x^2 + y^2` at the points :math:`(0.1, 0.1)`, :math:`(0.2, 0.2)` and
@@ -224,7 +224,7 @@ to a warning or switched off entirely:
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 31-35,37-44
+   :lines: 50-52,55-57,59-63
 
 
 Expressions with point evaluations
@@ -253,7 +253,7 @@ Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 50-64
+   :lines: 72-86
 
 .. _external:
 
@@ -272,23 +272,10 @@ method: this produces another vertex-only mesh which has points in the order
 and MPI rank that they were specified when first creating the original
 vertex-only mesh. For example:
 
-.. code-block:: python3
-
-   # We have a set of points with corresponding data from elsewhere
-   vom = VertexOnlyMesh(parent_mesh, point_locations_from_elsewhere, redundant = False)
-   P0DG = FunctionSpace(vom, "DG", 0)
-   point_data = Function(P0DG)  # how do we get the data in here?
-
-   # Create a P0DG function on the input ordering vertex-only mesh
-   P0DG_input_ordering = FunctionSpace(vom.input_ordering, "DG", 0)
-   point_data_input_ordering = Function(P0DG_input_ordering)
-
-   # We can safely set the values of this function, knowing that the data will
-   # be in the same order and on the same MPI rank as point_locations_from_elsewhere
-   point_data_input_ordering.dat.data_wo[:] = point_data_values_from_elsewhere
-
-   # Interpolate puts this data onto the original vertex-only mesh
-   point_data.interpolate(point_data_input_ordering)
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 158-173
 
 This is entirely parallel safe.
 
@@ -300,23 +287,17 @@ had
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 24-26
+   :lines: 26-28
 
 In parallel, this will print the values of ``f`` at the given ``points`` list
 **after the points have been distributed over the parent mesh**. If we want the
 values of ``f`` at the ``points`` list **before the points have been
 distributed** we can use :py:attr:`~.MeshGeometry.input_ordering` as follows:
 
-.. code-block:: python3
-
-   # Make a P0DG function on the input ordering vertex-only mesh again
-   P0DG_input_ordering = FunctionSpace(vom.input_ordering, "DG", 0)
-   f_at_input_points = Function(P0DG_input_ordering)
-
-   # We interpolate the other way this time
-   f_at_input_points.interpolate(f_at_points)
-
-   print(f_at_input_points.dat.data_ro)  # will print the values at the input points
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 30-37
 
 .. note::
 
@@ -336,13 +317,10 @@ the original vertex-only mesh. In the above example, the values would be zero
 at those points. To make it more obvious that those points were not found, it's
 a good idea to set the values to ``nan`` before the interpolation:
 
-.. code-block:: python3
-
-   import numpy as np
-   f_at_input_points.dat.data_wo[:] = np.nan
-   f_at_input_points.interpolate(f_at_points)
-
-   print(f_at_input_points.dat.data_ro)  # any points not found will be nan
+.. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
+   :language: python3
+   :dedent:
+   :lines: 39-43
 
 
 More ways to interact with external data
@@ -384,7 +362,7 @@ the mesh cells and is a property of the mesh itself
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 70-90
+   :lines: 92-112
 
 Keyword arguments
 ~~~~~~~~~~~~~~~~~
@@ -401,7 +379,7 @@ vertex-only mesh. This will modify the tolerance property of the parent mesh.
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 100-117
+   :lines: 122-139
 
 Note that since our tolerance is relative, the number of cells in a mesh
 dictates the point loss behaviour close to cell edges. So the mesh
