@@ -255,7 +255,7 @@ Firedrake using :func:`~.VertexOnlyMesh` and :func:`~.interpolate` as
    :dedent:
    :lines: 72-86
 
-.. _external:
+.. _external-point-data:
 
 Interacting with external point data
 ------------------------------------
