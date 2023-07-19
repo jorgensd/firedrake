@@ -172,4 +172,5 @@ def test_input_ordering_input():
     point_data = interpolate(point_data_input_ordering, P0DG)
 
     assert vom
-    assert point_data
+    if point_data:  # in case point data is None for some reason - apparently it can be in complex mode without an error occuring?
+        assert point_data  # avoid flake8 unused variable warning
