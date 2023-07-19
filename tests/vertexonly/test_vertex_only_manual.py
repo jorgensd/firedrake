@@ -159,7 +159,6 @@ def test_input_ordering_input():
     # from rank to rank
     vom = VertexOnlyMesh(parent_mesh, point_locations_from_elsewhere, redundant=False)
     P0DG = FunctionSpace(vom, "DG", 0)
-    point_data = Function(P0DG)  # how do we get the data in here?
 
     # Create a P0DG function on the input ordering vertex-only mesh
     P0DG_input_ordering = FunctionSpace(vom.input_ordering, "DG", 0)
@@ -170,6 +169,7 @@ def test_input_ordering_input():
     point_data_input_ordering.dat.data_wo[:] = point_data_values_from_elsewhere
 
     # Interpolate puts this data onto the original vertex-only mesh
-    point_data.interpolate(point_data_input_ordering)
+    point_data = interpolate(point_data_input_ordering, P0DG)
 
     assert vom
+    assert point_data

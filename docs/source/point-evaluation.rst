@@ -275,7 +275,7 @@ vertex-only mesh. For example:
 .. literalinclude:: ../../tests/vertexonly/test_vertex_only_manual.py
    :language: python3
    :dedent:
-   :lines: 158-173
+   :lines: 158-172
 
 This is entirely parallel safe.
 
