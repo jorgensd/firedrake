@@ -170,7 +170,7 @@ class Interpolator(object):
 
         if self.nargs:
             function, = function
-            if not hasattr(function, "dat"):
+            if not hasattr(function, "dat") or not isinstance(function.dat, op2.Dat):
                 raise ValueError("The expression had arguments: we therefore need to be given a Function (not an expression) to interpolate!")
             if not self.vom_onto_other_vom:
                 if transpose:
