@@ -861,27 +861,27 @@ class VomOntoVomCallable(object):
         if reduce:
             sf.reduceBegin(
                 mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                coeff_dat.data_ro,
+                target_dat.data_wo,
                 MPI.REPLACE,
             )
             sf.reduceEnd(
                 mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                coeff_dat.data_ro,
+                target_dat.data_wo,
                 MPI.REPLACE,
             )
         else:  # broadcast
             sf.bcastBegin(
                 mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                coeff_dat.data_ro,
+                target_dat.data_wo,
                 MPI.REPLACE,
             )
             sf.bcastEnd(
                 mpi_type,
-                coeff_dat.data_ro_with_halos,
-                target_dat.data_wo_with_halos,
+                coeff_dat.data_ro,
+                target_dat.data_wo,
                 MPI.REPLACE,
             )
 
