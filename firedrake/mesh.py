@@ -848,6 +848,8 @@ class AbstractMeshTopology(object, metaclass=abc.ABCMeta):
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
             to mark facet entities.
+            Can use "Q" (degree 2) functions for 3D hex meshes until
+            we support "HDiv Trace" elements on hex.
         :arg label_name: The name of the label to store entity selections.
         :arg lable_value: The value used in the label.
 
@@ -1289,7 +1291,8 @@ class MeshTopology(AbstractMeshTopology):
             # cells
             height = 0
         elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and self.cell_dimension() > 1) or \
-                (elem.family() == "Lagrange" and elem.degree() == 1 and self.cell_dimension() == 1):
+                (elem.family() == "Lagrange" and elem.degree() == 1 and self.cell_dimension() == 1) or \
+                (elem.family() == "Q" and elem.degree() == 2 and self.ufl_cell().cellname() == "hexahedron"):
             # facets
             height = 1
         else:
@@ -2274,6 +2277,8 @@ values from f.)"""
             must be "DP" or "DQ" (degree 0) to mark cell entities and
             "P" (degree 1) in 1D or "HDiv Trace" (degree 0) in 2D or 3D
             to mark facet entities.
+            Can use "Q" (degree 2) functions for 3D hex meshes until
+            we support "HDiv Trace" elements on hex.
         :arg label_name: The name of the label to store entity selections.
         :arg lable_value: The value used in the label.
 
@@ -3236,6 +3241,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
         "DP"/"DQ" (degree 0) functions to mark cell entities and
         "P" (degree 1) functions in 1D or "HDiv Trace" (degree 0) functions
         in 2D or 3D to mark facet entities.
+        Can use "Q" (degree 2) functions for 3D hex meshes until
+        we support "HDiv Trace" elements on hex.
     :arg subdomain_ids: list of subdomain ids associated with
         the indicator functions in indicator_functions; thus,
         must have the same length as indicator_functions.
@@ -3288,7 +3295,8 @@ def RelabeledMesh(mesh, indicator_functions, subdomain_ids, **kwargs):
             height = 0
             dmlabel_name = dmcommon.CELL_SETS_LABEL
         elif (elem.family() == "HDiv Trace" and elem.degree() == 0 and mesh.topological_dimension() > 1) or \
-                (elem.family() == "Lagrange" and elem.degree() == 1 and mesh.topological_dimension() == 1):
+                (elem.family() == "Lagrange" and elem.degree() == 1 and mesh.topological_dimension() == 1) or \
+                (elem.family() == "Q" and elem.degree() == 2 and mesh.topology.ufl_cell().cellname() == "hexahedron"):
             # facets
             height = 1
             dmlabel_name = dmcommon.FACE_SETS_LABEL
