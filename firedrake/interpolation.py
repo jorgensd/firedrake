@@ -758,7 +758,6 @@ class VomOntoVomWrapper(object):
     """
 
     def __init__(self, V, source_vom, target_vom, expr, arguments):
-        source_vom = source_vom
         reduce = False
         broadcast = False
         try:
@@ -782,8 +781,9 @@ class VomOntoVomWrapper(object):
         self.expr = expr
         self.arguments = arguments
         self.reduce = reduce
+        # note that interpolation doesn't include halo cells
         self.handle = VomOntoVomDummyMat(
-            original_vom.input_ordering_sf, reduce, V, source_vom, expr, arguments
+            original_vom.input_ordering_without_halos_sf, reduce, V, source_vom, expr, arguments
         )
 
     @property

@@ -2335,6 +2335,32 @@ values from f.)"""
     def input_ordering_sf(self):
         """
         Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
+        vertices as roots and this mesh's vertices (including any halo cells)
+        as leaves.
+
+        Only available for vertex-only meshes.
+        """
+        if not isinstance(self.topology, VertexOnlyMeshTopology):
+            raise AttributeError("Input ordering is only defined for vertex-only meshes.")
+        sf = PETSc.SF().create(comm=self.comm)
+        nroots = self.input_ordering.num_cells()
+        input_ranks = self.topology_dm.getField("inputrank")
+        self.topology_dm.restoreField("inputrank")
+        input_indices = self.topology_dm.getField("inputindex")
+        self.topology_dm.restoreField("inputindex")
+        nleaves = len(input_ranks)
+        input_ranks_and_idxs = np.empty(2 * nleaves, dtype=IntType)
+        input_ranks_and_idxs[0::2] = input_ranks
+        input_ranks_and_idxs[1::2] = input_indices
+        # local looks like the below, which means we can just pass in None
+        # local = numpy.arange(nleaves, dtype=IntType)
+        sf.setGraph(nroots, None, input_ranks_and_idxs)
+        return sf
+
+    @utils.cached_property  # TODO: Recalculate if mesh moves
+    def input_ordering_without_halos_sf(self):
+        """
+        Return a PETSc SF which has :func:`~.VertexOnlyMesh` input ordering
         vertices as roots and this mesh's non-halo vertices as leaves.
 
         Only available for vertex-only meshes.
